@@ -1,0 +1,14 @@
+{
+  "Author": "Astral",
+  "Name": "MyOwnACR Pro",
+  "InternalName": "MyOwnACR",
+  "AssemblyVersion": "1.0.0.0",
+  "Description": "Rotaciones automáticas para Dawntrail.",
+  "ApplicableVersion": "any",
+  "RepoUrl": "https://github.com/AstralMoonlight/MyOwnACR",
+  "Tags": [
+    "combat",
+    "monk",
+    "acr"
+  ]
+}
