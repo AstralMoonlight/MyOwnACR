@@ -1,6 +1,6 @@
 using Dalamud.Configuration;
 using Dalamud.Plugin;
-using SamplePlugin.JobConfigs;
+using MyOwnACR.JobConfigs;
 using System;
 
 namespace MyOwnACR

@@ -1,4 +1,5 @@
 using System;
+using MyOwnACR; // NECESARIO para encontrar 'Keys' y 'HotbarType'
 
 namespace MyOwnACR.JobConfigs
 {
@@ -37,17 +38,17 @@ namespace MyOwnACR.JobConfigs
         // ----------------------------------------------------------------------------------
         public KeyBind ForbiddenChakra = new KeyBind(Keys.E, HotbarType.Barra1_Base); // Ataque fuerte (Chakra)
         public KeyBind Enlightenment = new KeyBind(Keys.R, HotbarType.Barra4_Alt); // Versión AoE de Chakra
-        public KeyBind MasterfulBlitz = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl); // El ataque especial (Phantom Rush, etc)
-        public KeyBind ElixirField = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl); 
+
+        // Blitz Keys: Todas apuntan a la misma tecla física (donde tengas el botón de Blitz),
+        // pero necesitamos propiedades separadas para la lógica interna.
+        public KeyBind MasterfulBlitz = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl);
+        public KeyBind ElixirField = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl);
         public KeyBind RisingPhoenix = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl);
-        public KeyBind PhantomRush = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl); 
-        public KeyBind CelestialRevolution = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl); 
-
-
-
+        public KeyBind PhantomRush = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl);
+        public KeyBind CelestialRevolution = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl);
 
         // Meditación (Cargar Chakra)
-        public KeyBind Meditation = new KeyBind(Keys.E, HotbarType.Barra1_Base); 
+        public KeyBind Meditation = new KeyBind(Keys.E, HotbarType.Barra1_Base);
 
         // ----------------------------------------------------------------------------------
         // 4. BUFFS OFENSIVOS (Barra 2 - Ctrl)
@@ -78,7 +79,6 @@ namespace MyOwnACR.JobConfigs
 
         // ----------------------------------------------------------------------------------
         // 7. DAWNTRAIL FOLLOW-UPS (Nivel 100)
-        // Normalmente reemplazan al botón original, pero por si los tienes separados
         // ----------------------------------------------------------------------------------
         public KeyBind FiresReply = new KeyBind(Keys.R, HotbarType.Barra1_Base); // Mismo que Riddle of Fire
         public KeyBind WindsReply = new KeyBind(Keys.Num4, HotbarType.Barra1_Base); // Mismo que Riddle of Wind

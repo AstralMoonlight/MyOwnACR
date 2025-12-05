@@ -3,7 +3,8 @@
   "Name": "MyOwnACR Pro",
   "InternalName": "MyOwnACR",
   "AssemblyVersion": "1.0.0.0",
-  "Description": "Rotaciones automáticas para Dawntrail.",
+  "Description": "Rotaciones automáticas avanzadas para Monk en Dawntrail, incluyendo lógica de 2 minutos y Burst.",
+  "Punchline": "Rotación automática de Monk optimizada para Dawntrail.",
   "ApplicableVersion": "any",
   "RepoUrl": "https://github.com/AstralMoonlight/MyOwnACR",
   "Tags": [

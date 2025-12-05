@@ -8,7 +8,7 @@ using Dalamud.Game.ClientState.JobGauge.Types;
 using Dalamud.Game.ClientState.JobGauge.Enums;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
-using SamplePlugin.JobConfigs;
+using MyOwnACR.JobConfigs;
 
 namespace MyOwnACR.Logic
 {

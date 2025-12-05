@@ -1,6 +1,6 @@
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using FFXIVClientStructs.FFXIV.Client.Game;
-using SamplePlugin;
+using MyOwnACR;
 
 namespace MyOwnACR.Logic
 {
