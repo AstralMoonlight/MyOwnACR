@@ -21,34 +21,22 @@
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-        /* Estilo de botones de acción MEJORADO para temas */
         .btn-force {
             transition: all 0.1s;
             border-bottom: 4px solid rgba(0,0,0,0.1); 
-            /* Usamos colores base para que reaccione al tema */
             background-color: oklch(var(--b1)); 
             color: oklch(var(--bc));
         }
-        .btn-force:hover {
-            background-color: oklch(var(--b2)); 
-        }
-        .btn-force:active {
-            transform: translateY(2px);
-            border-bottom: 0px;
-        }
+        .btn-force:hover { background-color: oklch(var(--b2)); }
+        .btn-force:active { transform: translateY(2px); border-bottom: 0px; }
         
-        /* Estado de "En Cola" (Amarillo fijo) */
         .btn-queued {
             background-color: #fbbd23 !important; 
             color: black !important;
             border-color: #fbbd23 !important;
             animation: pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: .7; }
-        }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .7; } }
     </style>
 </head>
 <body class="bg-base-300 min-h-screen flex flex-col font-sans">
@@ -142,12 +130,8 @@
                                 <i class="fa-solid fa-shield-halved text-info"></i><span class="text-[0.65rem]">RoEarth</span>
                             </div>
                         </button>
-                        <button class="btn btn-force h-14" data-action="Feint" onclick="forceAction(this)">
-                            <span class="text-xs font-bold">Feint</span>
-                        </button>
-                        <button class="btn btn-force h-14" data-action="Mantra" onclick="forceAction(this)">
-                            <span class="text-xs font-bold">Mantra</span>
-                        </button>
+                        <button class="btn btn-force h-14" data-action="Feint" onclick="forceAction(this)"><span class="text-xs font-bold">Feint</span></button>
+                        <button class="btn btn-force h-14" data-action="Mantra" onclick="forceAction(this)"><span class="text-xs font-bold">Mantra</span></button>
                         <button class="btn btn-force h-14" data-action="Bloodbath" onclick="forceAction(this)">
                             <div class="flex flex-col items-center leading-none gap-1">
                                 <i class="fa-solid fa-droplet text-error"></i><span class="text-[0.65rem]">Blood</span>
@@ -201,10 +185,25 @@
     <dialog id="config_modal" class="modal modal-bottom sm:modal-middle">
         <div class="modal-box bg-base-100">
             <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i class="fa-solid fa-gear"></i> Ajustes Internos</h3>
+            
             <div class="collapse collapse-arrow bg-base-200 mb-2">
                 <input type="radio" name="config-accordion" checked="checked" /> 
+                <div class="collapse-title text-sm font-bold text-primary">GLOBAL</div>
+                <div class="collapse-content space-y-3 pt-2">
+                    <div class="form-control">
+                        <label class="label">
+                            <span class="label-text font-bold">Tecla de Activación (Toggle)</span>
+                        </label>
+                        <select id="global_hotkey" class="select select-bordered select-sm w-full">
+                            </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="collapse collapse-arrow bg-base-200 mb-2">
+                <input type="radio" name="config-accordion" /> 
                 <div class="collapse-title text-sm font-bold">Auto-Supervivencia</div>
-                <div class="collapse-content space-y-3">
+                <div class="collapse-content space-y-3 pt-2">
                     <div class="form-control">
                         <label class="label cursor-pointer justify-start gap-3">
                             <input type="checkbox" class="toggle toggle-success toggle-sm" id="surv_enable" />
@@ -217,11 +216,13 @@
                     </div>
                 </div>
             </div>
+
             <div class="collapse collapse-arrow bg-base-200">
                 <input type="radio" name="config-accordion" /> 
                 <div class="collapse-title text-sm font-bold">Mapeo de Teclas</div>
                 <div class="collapse-content"><div id="skill-list" class="config-scroll space-y-1 pr-1"></div></div>
             </div>
+
             <div class="modal-action">
                 <form method="dialog"><button class="btn btn-ghost">Cancelar</button></form>
                 <button class="btn btn-primary" onclick="saveAllSettings()">Guardar Cambios</button>
@@ -231,11 +232,9 @@
     </dialog>
 
     <script>
-        const HOST = "127.0.0.1:5055"; // Cambiar por tu IP local si usas móvil
+        const HOST = "127.0.0.1:5055"; 
         const ws = new WebSocket(`ws://${HOST}`);
 
-        // Constantes (KEYS, BARS, ACTIONS) - Mismas de siempre, las omito para ahorrar espacio visual, 
-        // ¡ASEGURATE DE PEGAR TUS DICCIONARIOS AQUÍ!
         const KEYS = { 0x31:"1",0x32:"2",0x33:"3",0x34:"4",0x35:"5",0x36:"6",0x51:"Q",0x45:"E",0x52:"R",0x46:"F",0x47:"G",0xDC:"º",0xE2:"<" };
         const BARS = { 0:"Base",1:"Ctrl",2:"Shift",3:"Alt",4:"Ctrl+Alt" };
         const ACTIONS = { 
@@ -245,7 +244,25 @@
             25763:"Phantom", 110:"Perfect Bal.", 7394:"Riddle Earth"
         };
 
+        // LISTA DE HOTKEYS PARA EL SELECTOR
+        const TOGGLE_KEYS = [
+            "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12",
+            "Insert", "Delete", "Home", "End", "PageUp", "PageDown", 
+            "NumPad0", "NumPad1", "NumPad2", "NumPad3", "NumPad4", "NumPad5", "NumPad6", "NumPad7", "NumPad8", "NumPad9",
+            "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", 
+            "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"
+        ];
+
         let currentConfig = {};
+
+        // Inicializar el select de Hotkeys
+        const hotkeySelect = document.getElementById("global_hotkey");
+        TOGGLE_KEYS.forEach(k => {
+            const opt = document.createElement("option");
+            opt.value = k;
+            opt.innerText = k;
+            hotkeySelect.appendChild(opt);
+        });
 
         ws.onopen = () => {
             const badge = document.getElementById("connection-status");
@@ -265,6 +282,11 @@
 
             if (msg.type === "status") {
                 const d = msg.data;
+                
+                // Actualizar Borde Reactivo (Ahora sí viene del backend!)
+                if (d.is_running) document.body.classList.add("border-active");
+                else document.body.classList.remove("border-active");
+
                 document.getElementById("target").innerText = d.target || "--";
                 const hpPct = d.target_max_hp > 0 ? Math.round((d.target_hp / d.target_max_hp) * 100) : 0;
                 document.getElementById("hp-bar").style.width = hpPct + "%";
@@ -278,23 +300,11 @@
                 if(nextId) comboEl.classList.add("text-primary", "scale-110");
                 else comboEl.classList.remove("text-primary", "scale-110");
 
-                // --- LÓGICA DE BORDE GLOBAL (SIEMPRE ACTIVA) ---
-                // Asumimos que el backend debería enviar isRunning, pero si no, 
-                // usamos la variable local 'd.status' que dice 'COMBATIENDO' o 'IDLE'.
-                // Para saber si el BOT está prendido, necesitaríamos enviar 'isRunning' desde C#.
-                // Por ahora, si hay status, asumimos verde.
-                
-                // --- LÓGICA DE BOTONES EN COLA (REACTIVA) ---
-                const queuedAction = d.queued_action; // Esto debe venir del C#
-                
-                // Recorremos todos los botones de acción manual
+                const queuedAction = d.queued_action;
                 document.querySelectorAll('.btn-force').forEach(btn => {
                     const actionName = btn.getAttribute('data-action');
-                    if (actionName === queuedAction && queuedAction !== "") {
-                        btn.classList.add('btn-queued');
-                    } else {
-                        btn.classList.remove('btn-queued');
-                    }
+                    if (actionName === queuedAction && queuedAction !== "") btn.classList.add('btn-queued');
+                    else btn.classList.remove('btn-queued');
                 });
             }
 
@@ -303,6 +313,7 @@
                 currentConfig = cfg;
                 if (cfg.Operation) loadOps(cfg.Operation);
                 if (cfg.Survival) loadSurv(cfg.Survival);
+                if (cfg.Global) hotkeySelect.value = cfg.Global.ToggleKey; // Cargar tecla
                 if (cfg.Monk) renderKeyList(cfg.Monk);
             }
         };
@@ -315,15 +326,12 @@
 
         function toggleBot(state) {
             sendJson(state ? 'START' : 'STOP');
-            if (state) document.body.classList.add("border-active");
-            else document.body.classList.remove("border-active");
         }
 
         function forceAction(btn) {
             const actionName = btn.getAttribute('data-action');
             if(navigator.vibrate) navigator.vibrate(50);
             sendJson("force_action", actionName);
-            // YA NO PONEMOS CLASE AQUÍ, ESPERAMOS AL WEBSOCKET
         }
 
         function updateOps() {
@@ -347,6 +355,11 @@
                 MinHp_Bloodbath: parseInt(document.getElementById("surv_bb").value) || 0
             };
             sendJson("save_survival", survData);
+            
+            // Guardar Global Hotkey
+            const globalData = { ToggleKey: hotkeySelect.value };
+            sendJson("save_global", globalData);
+
             if (currentConfig.Monk) {
                 for (const skill of Object.keys(currentConfig.Monk)) {
                     const barEl = document.getElementById(`bar_${skill}`);

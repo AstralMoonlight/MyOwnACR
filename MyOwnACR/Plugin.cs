@@ -5,6 +5,7 @@ using Dalamud.Plugin.Services;
 using Dalamud.Game.ClientState.Statuses;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Conditions;
+using Dalamud.Game.ClientState.Keys;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using System;
 using System.Net;
@@ -41,6 +42,7 @@ namespace MyOwnACR
         [PluginService] internal static ICondition Condition { get; private set; } = null!;
         [PluginService] internal static IJobGauges JobGauges { get; private set; } = null!;
         [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
+        [PluginService] internal static IKeyState KeyState { get; private set; } = null!;
 
         public Configuration Config { get; set; }
 
@@ -51,6 +53,8 @@ namespace MyOwnACR
         private bool isRunning = false;
         private DateTime lastSentTime = DateTime.MinValue;
         private bool isSending = false;
+
+        private bool isHotkeyDown = false;
 
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -68,7 +72,9 @@ namespace MyOwnACR
             Task.Run(() => StartWebServer(cts.Token));
 
             Framework.Update += OnGameUpdate;
-            Chat.Print("[MyOwnACR] Cargado. Configurable vía Web.");
+
+            // SILENCIADO: Mensaje de carga
+            // Chat.Print("[MyOwnACR] Cargado. Pulsa " + Config.ToggleHotkey + " para activar.");
         }
 
         public void Dispose()
@@ -97,12 +103,28 @@ namespace MyOwnACR
 
         private void OnCommand(string command, string args)
         {
+            ToggleRunning();
+        }
+
+        private void ToggleRunning()
+        {
             isRunning = !isRunning;
-            Chat.Print(isRunning ? ">> ACR ACTIVADO <<" : ">> ACR PAUSADO <<");
+
+            // SILENCIADO: Mensaje de activación/desactivación por chat
+            /*
+            var color = isRunning ? 45 : 538; 
+            var msg = isRunning ? "ACTIVADO" : "PAUSADO";
+            var sb = new Dalamud.Game.Text.SeStringHandling.SeStringBuilder()
+                .AddUiForeground((ushort)color)
+                .AddText($">> ACR {msg} <<")
+                .Build();
+            Chat.Print(sb);
+            */
         }
 
         private void OnCommandStatus(string command, string args)
         {
+            // ESTE SE MANTIENE porque es una solicitud explícita de información
             var player = ObjectTable.LocalPlayer;
             if (player == null) return;
 
@@ -120,6 +142,7 @@ namespace MyOwnACR
 
         private void OnCommandDebug(string command, string args)
         {
+            // ESTE SE MANTIENE para debugging
             Logic.MNK_Logic.PrintDebugInfo(Chat);
         }
 
@@ -127,60 +150,90 @@ namespace MyOwnACR
         {
             try
             {
-                if (!isRunning) return;
-
-                var player = ObjectTable.LocalPlayer;
-                if (player == null || player.CurrentHp <= 0 || player.TargetObject == null) return;
-
-                ActionManager* am = ActionManager.Instance();
-                if (am == null) return;
-
-                var jobId = player.ClassJob.RowId;
-
-                if (jobId == 20 || jobId == 2)
+                // 1. HOTKEY
+                bool currentState = KeyState[Config.ToggleHotkey];
+                if (currentState && !isHotkeyDown)
                 {
-                    bool survivalActionUsed = Logic.Survival.Execute(
-                        am, player, Config.Survival, Config.Monk.SecondWind, Config.Monk.Bloodbath
-                    );
+                    isHotkeyDown = true;
+                    ToggleRunning();
+                }
+                else if (!currentState)
+                {
+                    isHotkeyDown = false;
+                }
 
-                    if (!survivalActionUsed)
+                // 2. LÓGICA
+                if (isRunning)
+                {
+                    var player = ObjectTable.LocalPlayer;
+                    if (player != null && player.CurrentHp > 0 && player.TargetObject != null)
                     {
-                        Logic.MNK_Logic.Execute(am, player, Config.Monk, ObjectTable, Config.Operation);
+                        ActionManager* am = ActionManager.Instance();
+                        if (am != null)
+                        {
+                            var jobId = player.ClassJob.RowId;
+                            if (jobId == 20 || jobId == 2)
+                            {
+                                bool survivalActionUsed = Logic.Survival.Execute(
+                                    am, player, Config.Survival, Config.Monk.SecondWind, Config.Monk.Bloodbath
+                                );
+
+                                if (!survivalActionUsed)
+                                {
+                                    Logic.MNK_Logic.Execute(am, player, Config.Monk, ObjectTable, Config.Operation);
+                                }
+                            }
+                        }
                     }
                 }
 
+                // 3. DASHBOARD UPDATE
                 var now = DateTime.Now;
                 if ((now - lastSentTime).TotalMilliseconds >= 100)
                 {
                     lastSentTime = now;
-                    var playerName = player.Name.TextValue;
-                    var targetName = player.TargetObject?.Name?.TextValue ?? "--";
-                    var combo = am->Combo.Action;
+                    var player = ObjectTable.LocalPlayer;
 
-                    uint targetHp = 0;
-                    uint targetMaxHp = 0;
-                    if (player.TargetObject is Dalamud.Game.ClientState.Objects.Types.ICharacter tChar)
+                    string targetName = "--";
+                    string playerName = "--";
+                    uint jobId = 0;
+                    uint combo = 0;
+                    uint tHp = 0; uint tMax = 0;
+
+                    if (player != null)
                     {
-                        targetHp = tChar.CurrentHp;
-                        targetMaxHp = tChar.MaxHp;
+                        playerName = player.Name.TextValue;
+                        jobId = player.ClassJob.RowId;
+                        if (player.TargetObject != null)
+                        {
+                            targetName = player.TargetObject.Name.TextValue;
+                            if (player.TargetObject is Dalamud.Game.ClientState.Objects.Types.ICharacter tChar)
+                            {
+                                tHp = tChar.CurrentHp;
+                                tMax = tChar.MaxHp;
+                            }
+                        }
+                        ActionManager* am = ActionManager.Instance();
+                        if (am != null) combo = am->Combo.Action;
                     }
 
                     bool inCombat = Condition[ConditionFlag.InCombat];
-                    var status = inCombat ? "COMBATIENDO" : "IDLE";
+                    var statusText = isRunning ? (inCombat ? "COMBATIENDO" : "ESPERANDO") : "PAUSADO";
 
                     _ = SendJsonAsync("status", new
                     {
-                        hp = (int)player.CurrentHp,
-                        max_hp = (int)player.MaxHp,
+                        is_running = isRunning,
+                        status = statusText,
+                        hp = (player != null) ? (int)player.CurrentHp : 0,
+                        max_hp = (player != null) ? (int)player.MaxHp : 1,
                         target = targetName,
                         job = jobId,
                         combo = combo,
                         next_action = Logic.MNK_Logic.LastProposedAction,
                         queued_action = Logic.MNK_Logic.GetQueuedAction(),
-                        status = status,
                         player_name = playerName,
-                        target_hp = (int)targetHp,
-                        target_max_hp = (int)targetMaxHp
+                        target_hp = (int)tHp,
+                        target_max_hp = (int)tMax
                     });
                 }
             }
@@ -210,10 +263,7 @@ namespace MyOwnACR
                 {
                     if (httpListener != null) try { httpListener.Close(); } catch { }
                     httpListener = new HttpListener();
-
-                    // Recuerda: "*" requiere Admin. "127.0.0.1" no.
                     httpListener.Prefixes.Add("http://127.0.0.1:5055/");
-
                     httpListener.Start();
 
                     while (httpListener.IsListening && !token.IsCancellationRequested)
@@ -258,14 +308,14 @@ namespace MyOwnACR
                 if (type == "START")
                 {
                     isRunning = true;
-                    Chat.Print(">> START <<");
+                    // SILENCIADO: Chat.Print(">> START (Web) <<");
                     FocusGame();
                 }
 
                 if (type == "STOP")
                 {
                     isRunning = false;
-                    Chat.Print(">> STOP <<");
+                    // SILENCIADO: Chat.Print(">> STOP (Web) <<");
                 }
 
                 if (type == "force_action")
@@ -277,8 +327,25 @@ namespace MyOwnACR
 
                 if (type == "get_config")
                 {
-                    var payload = new { Monk = Config.Monk, Survival = Config.Survival, Operation = Config.Operation };
+                    var payload = new
+                    {
+                        Monk = Config.Monk,
+                        Survival = Config.Survival,
+                        Operation = Config.Operation,
+                        Global = new { ToggleKey = Config.ToggleHotkey.ToString() }
+                    };
                     _ = SendJsonAsync("config_data", payload);
+                }
+
+                if (type == "save_global")
+                {
+                    string keyStr = cmd["data"]?["ToggleKey"]?.ToString() ?? "F8";
+                    if (Enum.TryParse(keyStr, out VirtualKey k))
+                    {
+                        Config.ToggleHotkey = k;
+                        Config.Save();
+                        // SILENCIADO: Chat.Print("[ACR] Hotkey cambiada a: " + k);
+                    }
                 }
 
                 if (type == "save_config")
@@ -291,14 +358,11 @@ namespace MyOwnACR
                     var newSurv = cmd["data"]?.ToObject<SurvivalConfig>();
                     if (newSurv != null) { Config.Survival = newSurv; Config.Save(); }
                 }
-
-                // === AQUÍ ESTÁ EL CAMBIO PARA LOS TOGGLES ===
                 if (type == "save_operation")
                 {
                     var newOp = cmd["data"]?.ToObject<OperationalSettings>();
                     if (newOp != null) { Config.Operation = newOp; Config.Save(); }
-
-                    FocusGame(); // <--- AHORA ENFOCA EL JUEGO AL CAMBIAR AJUSTES
+                    FocusGame();
                 }
             }
             catch { }

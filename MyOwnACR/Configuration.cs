@@ -1,5 +1,6 @@
 using Dalamud.Configuration;
 using Dalamud.Plugin;
+using Dalamud.Game.ClientState.Keys; // <--- NECESARIO PARA VirtualKey
 using MyOwnACR.JobConfigs;
 using System;
 
@@ -14,33 +15,27 @@ namespace MyOwnACR
         public KeyBind() { }
     }
 
-    // --- CONFIGURACIÓN DE SUPERVIVENCIA ---
     [Serializable]
     public class SurvivalConfig
     {
-        public bool Enabled { get; set; } = false; // Toggle Maestro
-
+        public bool Enabled { get; set; } = false;
         public int MinHp_SecondWind { get; set; } = 40;
         public int MinHp_Bloodbath { get; set; } = 60;
     }
 
-    // --- AJUSTES OPERATIVOS Y TOGGLES DE COMBATE ---
     [Serializable]
     public class OperationalSettings
     {
-        // Opciones Generales
         public bool AoE_Enabled { get; set; } = true;
         public bool TrueNorth_Auto { get; set; } = false;
         public bool SixSidedStar_Use { get; set; } = false;
 
-        // Nuevos Toggles para el Dashboard (Gestión de Cooldowns)
-        public bool SaveCD { get; set; } = false; // Bloqueo maestro de CDs (para fases de downtime)
-
-        public bool UsePB { get; set; } = true;              // Perfect Balance
-        public bool UseRoF { get; set; } = true;             // Riddle of Fire
-        public bool UseRoW { get; set; } = true;             // Riddle of Wind
-        public bool UseBrotherhood { get; set; } = true;     // Brotherhood
-        public bool UseForbiddenChakra { get; set; } = true; // The Forbidden Chakra
+        public bool SaveCD { get; set; } = false;
+        public bool UsePB { get; set; } = true;
+        public bool UseRoF { get; set; } = true;
+        public bool UseRoW { get; set; } = true;
+        public bool UseBrotherhood { get; set; } = true;
+        public bool UseForbiddenChakra { get; set; } = true;
     }
 
     [Serializable]
@@ -48,10 +43,10 @@ namespace MyOwnACR
     {
         public int Version { get; set; } = 1;
 
-        // Configuración por Job
-        public JobConfig_MNK Monk = new JobConfig_MNK();
+        // --- NUEVO: HOTKEY GLOBAL (Default F8) ---
+        public VirtualKey ToggleHotkey = VirtualKey.F8;
 
-        // Configuración Global
+        public JobConfig_MNK Monk = new JobConfig_MNK();
         public SurvivalConfig Survival = new SurvivalConfig();
         public OperationalSettings Operation = new OperationalSettings();
 
