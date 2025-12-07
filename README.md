@@ -1,10 +1,20 @@
 # MyOwnACR Pro
 
-**MyOwnACR** is a specialized Dalamud plugin designed to automate and optimize the **Monk (MNK)** rotation for *Final Fantasy XIV: Dawntrail (7.x)*.
+**MyOwnACR** is a Dalamud plugin for automated combat rotations and input orchestration in *Final Fantasy XIV: Dawntrail (7.x)*.
 
-It goes beyond simple skill spamming by implementing advanced logic for burst alignment, specific openers (Double Lunar), and includes an external Web Dashboard for real-time monitoring and configuration.
+The core is designed as a **generic ACR framework** capable of hosting rotation logic for multiple jobs inside a single addon. Input sending, game state tracking and the external Web Dashboard are shared infrastructure. Individual jobs are implemented as pluggable logic modules on top of this core.
+
+At the moment, the only fully implemented job is **Monk (MNK)**, which serves as the primary target for all design, testing and tuning. Future versions are intended to add support for additional jobs by reusing the same architecture.
 
 ## Key Features
+
+### 🧩 Core ACR Framework
+
+- Shared input engine (key simulation with human-like delays and queueing).
+- Local HTTP/WebSocket server and Web Dashboard for control and real-time monitoring.
+- Job configuration system (keybinds, survival logic, operational settings) designed to be extended to other jobs.
+- Separation between core infrastructure and per-job logic to centralize all class behavior in a single addon.
+
 
 ### 🥋 Advanced Monk Logic
 * **Dawntrail Ready:** Full support for the new Beast Chakra system, Nadi management, and Masterful Blitz evolutions (Elixir Burst, Rising Phoenix, Phantom Rush).

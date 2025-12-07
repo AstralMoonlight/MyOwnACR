@@ -1,0 +1,27 @@
+{
+  "Name": "Monk Double Lunar (7s Buff) - Lv100",
+  "Steps": [
+    { "Name": "Dragon Kick", "KeyName": "DragonKick", "ActionId": 74 },
+    { "Name": "Perfect Balance", "KeyName": "PerfectBalance", "ActionId": 69 },
+    { "Name": "The Forbidden Chakra", "KeyName": "ForbiddenChakra", "ActionId": 3547 },
+    { "Name": "Leaping Opo", "KeyName": "Bootshine", "ActionId": 53 },
+    { "Name": "Dragon Kick", "KeyName": "DragonKick", "ActionId": 74 },
+    { "Name": "Potion", "KeyName": "Pocion", "Type": "Potion", "ActionId": 0 },
+    { "Name": "Leaping Opo", "KeyName": "Bootshine", "ActionId": 53 },
+    { "Name": "Brotherhood", "KeyName": "Brotherhood", "ActionId": 7396 },
+    { "Name": "Riddle of Fire", "KeyName": "RiddleOfFire", "ActionId": 7395 },
+    { "Name": "Elixir Burst", "KeyName": "MasterfulBlitz", "ActionId": 25764 },
+    { "Name": "Riddle of Wind", "KeyName": "RiddleOfWind", "ActionId": 25766 },
+    { "Name": "Dragon Kick", "KeyName": "DragonKick", "ActionId": 74 },
+    { "Name": "Wind's Reply", "KeyName": "WindsReply", "ActionId": 36950 },
+    { "Name": "Fire's Reply", "KeyName": "FiresReply", "ActionId": 36949 },
+    { "Name": "Leaping Opo", "KeyName": "Bootshine", "ActionId": 53 },
+    { "Name": "Perfect Balance", "KeyName": "PerfectBalance", "ActionId": 69 },
+    { "Name": "Dragon Kick", "KeyName": "DragonKick", "ActionId": 74 },
+    { "Name": "Leaping Opo", "KeyName": "Bootshine", "ActionId": 53 },
+    { "Name": "Dragon Kick", "KeyName": "DragonKick", "ActionId": 74 },
+    { "Name": "Elixir Burst", "KeyName": "MasterfulBlitz", "ActionId": 25764 },
+    { "Name": "Leaping Opo", "KeyName": "Bootshine", "ActionId": 53 },
+    { "Name": "Twin Snakes", "KeyName": "TwinSnakes", "ActionId": 61 }
+  ]
+}
