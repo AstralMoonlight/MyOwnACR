@@ -28,6 +28,7 @@ namespace MyOwnACR.GameData
         public const uint ArmOfTheDestroyer = 62;    // Nv 82: Shadow of the Destroyer (Forma 1)
         public const uint FourPointFury = 16473; // (Forma 2)
         public const uint Rockbreaker = 70;    // (Forma 3)
+        public const uint ShadowOfTheDestroyer = 25767;
 
         // =========================================================================
         // 3. MASTERFUL BLITZ (GCD Especial)

@@ -9,14 +9,14 @@ using Dalamud.Game.ClientState.JobGauge.Enums;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using MyOwnACR.JobConfigs;
-using MyOwnACR.GameData; // Usamos la nueva carpeta de datos
+using MyOwnACR.GameData;
 
 namespace MyOwnACR.Logic
 {
     public static class MNK_Logic
     {
         // =========================================================================
-        // CONFIGURACIÓN (VALORES PROTEGIDOS)
+        // CONFIGURACIÓN
         // =========================================================================
         private const float MeleeRange = 5f;
         private const int AoE_Threshold = 3;
@@ -26,8 +26,6 @@ namespace MyOwnACR.Logic
         private static DateTime LastPBTime = DateTime.MinValue;
 
         public static uint LastProposedAction = 0;
-
-        // VARIABLE PARA ACCIONES FORZADAS
         private static string QueuedManualAction = "";
 
         public static void QueueManualAction(string actionName)
@@ -41,13 +39,11 @@ namespace MyOwnACR.Logic
             if (player == null) return;
 
             var gauge = Plugin.JobGauges.Get<MNKGauge>();
-            int rawNadi = (int)gauge.Nadi;
-
             var am = ActionManager.Instance();
             GetActionCharges(am, MNK_IDs.PerfectBalance, player.Level, out int curPB, out int maxPB);
 
-            chat.Print($"[ACR] Lv{player.Level} | Nadi: {rawNadi} | PB: {curPB}/{maxPB}");
-            chat.Print($"[ACR] Intención: {LastProposedAction}");
+            chat.Print($"[ACR] Lv{player.Level} | Nadi: {gauge.Nadi} | PB: {curPB}/{maxPB}");
+            chat.Print($"[ACR] LastCombo: {am->Combo.Action}");
         }
 
         public unsafe static void Execute(
@@ -59,7 +55,7 @@ namespace MyOwnACR.Logic
         {
             if (am == null || player == null || config == null) return;
 
-            // 1. MANEJO DE ACCIONES FORZADAS
+            // 1. MANUAL
             if (!string.IsNullOrEmpty(QueuedManualAction))
             {
                 KeyBind? bindToPress = null;
@@ -87,7 +83,7 @@ namespace MyOwnACR.Logic
 
             bool inCombat = Plugin.Condition?[ConditionFlag.InCombat] ?? false;
 
-            // 0. FUERA DE COMBATE
+            // 2. FUERA DE COMBATE
             if (!inCombat)
             {
                 bool hasAnyForm = HasStatus(player, MNK_IDs.Status_OpoOpoForm) ||
@@ -95,7 +91,6 @@ namespace MyOwnACR.Logic
                                   HasStatus(player, MNK_IDs.Status_CoeurlForm) ||
                                   HasStatus(player, MNK_IDs.Status_FormlessFist);
 
-                // Form Shift (Lv 52)
                 if (player.Level >= MNK_Levels.FormShift && !hasAnyForm && CanUseRecast(am, MNK_IDs.FormShift))
                 {
                     LastProposedAction = MNK_IDs.FormShift;
@@ -104,7 +99,6 @@ namespace MyOwnACR.Logic
                     return;
                 }
 
-                // Meditation (Lv 15)
                 if (player.Level >= MNK_Levels.Meditation)
                 {
                     var gauge = Plugin.JobGauges.Get<MNKGauge>();
@@ -119,29 +113,20 @@ namespace MyOwnACR.Logic
                 return;
             }
 
-            // 0.5 FUERA DE RANGO
+            // 3. RANGO
             int enemyCount = CombatHelpers.CountAttackableEnemiesInRange(objectTable, player, 5f);
             bool useAoE = operation.AoE_Enabled && enemyCount >= AoE_Threshold;
             bool inRange = IsInMeleeRange(player);
 
             if (!inRange)
             {
-                // Replies (Solo si tienes el nivel/buff)
                 if (HasStatus(player, MNK_IDs.Status_FiresRumination) && CanUseRecast(am, MNK_IDs.FiresReply))
                 {
-                    LastProposedAction = MNK_IDs.FiresReply;
-                    PressBind(config.FiresReply);
-                    lastAnyActionTime = now;
-                    ogcdUsedSinceLastGcd = false;
-                    return;
+                    LastProposedAction = MNK_IDs.FiresReply; PressBind(config.FiresReply); lastAnyActionTime = now; ogcdUsedSinceLastGcd = false; return;
                 }
                 if (HasStatus(player, MNK_IDs.Status_WindsRumination) && CanUseRecast(am, MNK_IDs.WindsReply))
                 {
-                    LastProposedAction = MNK_IDs.WindsReply;
-                    PressBind(config.WindsReply);
-                    lastAnyActionTime = now;
-                    ogcdUsedSinceLastGcd = false;
-                    return;
+                    LastProposedAction = MNK_IDs.WindsReply; PressBind(config.WindsReply); lastAnyActionTime = now; ogcdUsedSinceLastGcd = false; return;
                 }
 
                 if (player.Level >= MNK_Levels.Meditation)
@@ -149,20 +134,15 @@ namespace MyOwnACR.Logic
                     var gaugeRun = Plugin.JobGauges.Get<MNKGauge>();
                     if (gaugeRun.Chakra < 5 && CanUseRecast(am, MNK_IDs.Meditation))
                     {
-                        LastProposedAction = MNK_IDs.Meditation;
-                        PressBind(config.Meditation);
-                        lastAnyActionTime = now;
-                        return;
+                        LastProposedAction = MNK_IDs.Meditation; PressBind(config.Meditation); lastAnyActionTime = now; return;
                     }
                 }
                 return;
             }
 
-            // 1. GCD LOGIC
+            // 4. GCD
             var gcdCandidate = GetNextGcdCandidate(am, config, player, useAoE);
-
-            if (gcdCandidate.HasValue)
-                LastProposedAction = gcdCandidate.Value.actionId;
+            if (gcdCandidate.HasValue) LastProposedAction = gcdCandidate.Value.actionId;
 
             bool isActionReady = false;
             if (gcdCandidate.HasValue)
@@ -180,7 +160,7 @@ namespace MyOwnACR.Logic
                 return;
             }
 
-            // 2. OGCD LOGIC
+            // 5. OGCD
             if (!ogcdUsedSinceLastGcd)
             {
                 if (TryUseOgcd(am, config, player, operation))
@@ -193,7 +173,7 @@ namespace MyOwnACR.Logic
         }
 
         // =========================================================================
-        // SELECTOR DE GCD (CON NIVEL)
+        // SELECTOR DE GCD
         // =========================================================================
         private unsafe static (uint actionId, KeyBind bind)? GetNextGcdCandidate(
             ActionManager* am,
@@ -204,7 +184,6 @@ namespace MyOwnACR.Logic
             var gauge = Plugin.JobGauges.Get<MNKGauge>();
             bool isPerfectBalance = HasStatus(player, MNK_IDs.Status_PerfectBalance);
 
-            // 1. BLITZ CHECK (Nivel 60+)
             if (player.Level >= MNK_Levels.MasterfulBlitz)
             {
                 int realChakraCount = gauge.BeastChakra.Count(c => c != BeastChakra.None);
@@ -218,27 +197,19 @@ namespace MyOwnACR.Logic
                 }
             }
 
-            // 2. MODO PERFECT BALANCE (Nivel 50+)
             if (player.Level >= MNK_Levels.PerfectBalance && isPerfectBalance)
             {
-                // Si somos < 60, no hay Nadis, solo spameamos daño (Opo)
                 if (player.Level < MNK_Levels.MasterfulBlitz)
-                {
                     return GetBestOpoAction(useAoE, gauge, config, player.Level);
-                }
 
                 int rawNadi = (int)gauge.Nadi;
                 bool hasLunar = (rawNadi & 1) != 0;
                 bool hasSolar = (rawNadi & 2) != 0;
 
-                // A: Phantom Rush -> Spam Opo
                 if (hasLunar && hasSolar) return GetBestOpoAction(useAoE, gauge, config, player.Level);
-
-                // B: Elixir Burst -> Spam Opo
                 if (HasStatus(player, MNK_IDs.Status_Brotherhood)) return GetBestOpoAction(useAoE, gauge, config, player.Level);
                 if (!hasLunar) return GetBestOpoAction(useAoE, gauge, config, player.Level);
 
-                // C: Rising Phoenix -> 3 DISTINTOS
                 if (hasLunar && !hasSolar)
                 {
                     int realChakraCount = gauge.BeastChakra.Count(c => c != BeastChakra.None);
@@ -248,11 +219,9 @@ namespace MyOwnACR.Logic
                 }
             }
 
-            // 3. REPLIES
             if (HasStatus(player, MNK_IDs.Status_FiresRumination)) return (MNK_IDs.FiresReply, config.FiresReply);
             if (HasStatus(player, MNK_IDs.Status_WindsRumination)) return (MNK_IDs.WindsReply, config.WindsReply);
 
-            // 4. ROTACIÓN NORMAL
             bool isFormless = HasStatus(player, MNK_IDs.Status_FormlessFist);
             bool isRaptor = HasStatus(player, MNK_IDs.Status_RaptorForm);
             bool isCoeurl = HasStatus(player, MNK_IDs.Status_CoeurlForm);
@@ -264,7 +233,7 @@ namespace MyOwnACR.Logic
         }
 
         // =========================================================================
-        // OGCD LOGIC (CON NIVEL)
+        // OGCD LOGIC (CON REGLA ESTRICTA DE OPO-OPO)
         // =========================================================================
         private unsafe static bool TryUseOgcd(
             ActionManager* am,
@@ -276,87 +245,82 @@ namespace MyOwnACR.Logic
 
             var gauge = Plugin.JobGauges.Get<MNKGauge>();
             bool rofActive = HasStatus(player, MNK_IDs.Status_RiddleOfFire);
-
-            // SIMULACIÓN DE ROF PARA NIVEL BAJO (50-67)
-            // Si no tenemos RoF desbloqueado, simulamos que está activo para que PB se use.
             if (player.Level < MNK_Levels.RiddleOfFire) rofActive = true;
 
-            // 1. RIDDLE OF FIRE (Lv 68+)
-            if (op.UseRoF && player.Level >= MNK_Levels.RiddleOfFire && CanUseRecast(am, MNK_IDs.RiddleOfFire))
+            // 1. RIDDLE OF FIRE
+            if (player.Level >= MNK_Levels.RiddleOfFire && CanUseRecast(am, MNK_IDs.RiddleOfFire))
             {
                 LastProposedAction = MNK_IDs.RiddleOfFire;
                 PressBind(config.RiddleOfFire);
                 return true;
             }
 
-            // 2. PERFECT BALANCE (Lv 50+)
-            if (op.UsePB && player.Level >= MNK_Levels.PerfectBalance)
+            // 2. PERFECT BALANCE (Regla: Siempre después de Opo-Opo)
+            bool pbSafe = (DateTime.Now - LastPBTime).TotalSeconds > 2.5;
+
+            int rawNadi = (int)gauge.Nadi;
+            bool hasLunar = (rawNadi & 1) != 0;
+            bool hasSolar = (rawNadi & 2) != 0;
+            bool isOpener = !hasLunar && !hasSolar;
+
+            if (player.Level < MNK_Levels.MasterfulBlitz) isOpener = false;
+            if (isOpener) pbSafe = true;
+
+            GetActionCharges(am, MNK_IDs.PerfectBalance, player.Level, out int pbCharges, out int pbMax);
+            bool inPB = HasStatus(player, MNK_IDs.Status_PerfectBalance);
+
+            if (player.Level >= MNK_Levels.PerfectBalance && !inPB && pbCharges > 0 && pbSafe)
             {
-                // Check de seguridad: 2.5s para no spamear si falla
-                bool pbSafe = (DateTime.Now - LastPBTime).TotalSeconds > 2.5;
+                // VERIFICACIÓN DE ÚLTIMO GOLPE (OPO-OPO)
+                uint lastAction = am->Combo.Action;
+                bool lastWasOpo = lastAction == MNK_IDs.Bootshine ||
+                                  lastAction == MNK_IDs.DragonKick ||
+                                  lastAction == MNK_IDs.LeapingOpo ||
+                                  lastAction == MNK_IDs.ArmOfTheDestroyer ||
+                                  lastAction == MNK_IDs.ShadowOfTheDestroyer;
 
-                int rawNadi = (int)gauge.Nadi;
-                bool hasLunar = (rawNadi & 1) != 0;
-                bool hasSolar = (rawNadi & 2) != 0;
-                bool isOpener = !hasLunar && !hasSolar;
+                bool shouldUse = false;
 
-                // Si no hay Blitz (Lv < 60), no existe concepto de "Opener" ni "Nadi", solo uso
-                if (player.Level < MNK_Levels.MasterfulBlitz) isOpener = false;
-                if (isOpener) pbSafe = true;
-
-                GetActionCharges(am, MNK_IDs.PerfectBalance, player.Level, out int pbCharges, out int pbMax);
-                bool inPB = HasStatus(player, MNK_IDs.Status_PerfectBalance);
-
-                if (!inPB && pbCharges > 0 && pbSafe)
+                // A) OPENER: Ahora también exigimos que haya golpeado el primer Opo (Dragon Kick)
+                if (isOpener)
                 {
-                    if (isOpener)
+                    if (lastWasOpo) shouldUse = true;
+                }
+                // B) BURST (Mid-Fight): Solo si el último fue Opo
+                else if (rofActive)
+                {
+                    if (lastWasOpo)
                     {
-                        LastProposedAction = MNK_IDs.PerfectBalance;
-                        LastPBTime = DateTime.Now;
-                        PressBind(config.PerfectBalance);
-                        return true;
+                        if (HasStatus(player, MNK_IDs.Status_Brotherhood) || CanUseRecast(am, MNK_IDs.Brotherhood))
+                            shouldUse = true;
+                        else if (pbCharges >= 1)
+                            shouldUse = true;
                     }
+                }
+                // C) OVERCAP: Si vamos a perder cargas, úsalo (sin importar Opo, para no perder DPS)
+                else if (pbCharges == pbMax)
+                {
+                    float rofCD = am->GetRecastTime(ActionType.Action, MNK_IDs.RiddleOfFire);
+                    if (rofCD > 10.0f && !rofActive) shouldUse = true;
+                }
 
-                    if (rofActive)
-                    {
-                        bool usePB = false;
-                        if (HasStatus(player, MNK_IDs.Status_Brotherhood) || CanUseRecast(am, MNK_IDs.Brotherhood)) usePB = true;
-                        else if (pbCharges >= 1) usePB = true;
-
-                        if (usePB)
-                        {
-                            LastProposedAction = MNK_IDs.PerfectBalance;
-                            LastPBTime = DateTime.Now;
-                            PressBind(config.PerfectBalance);
-                            return true;
-                        }
-                    }
-
-                    if (pbCharges == pbMax) // Overcap
-                    {
-                        float rofCD = am->GetRecastTime(ActionType.Action, MNK_IDs.RiddleOfFire);
-                        if (rofCD > 10.0f && !rofActive)
-                        {
-                            LastProposedAction = MNK_IDs.PerfectBalance;
-                            LastPBTime = DateTime.Now;
-                            PressBind(config.PerfectBalance);
-                            return true;
-                        }
-                    }
+                if (shouldUse)
+                {
+                    LastProposedAction = MNK_IDs.PerfectBalance;
+                    LastPBTime = DateTime.Now;
+                    PressBind(config.PerfectBalance);
+                    return true;
                 }
             }
 
-            // 3. BROTHERHOOD (Lv 70+)
-            if (op.UseBrotherhood && player.Level >= MNK_Levels.Brotherhood && CanUseRecast(am, MNK_IDs.Brotherhood))
+            // 3. BROTHERHOOD
+            if (player.Level >= MNK_Levels.Brotherhood && CanUseRecast(am, MNK_IDs.Brotherhood))
             {
                 if (rofActive)
                 {
-                    GetActionCharges(am, MNK_IDs.PerfectBalance, player.Level, out int pbCharges, out int pbMax);
-                    bool inPB = HasStatus(player, MNK_IDs.Status_PerfectBalance);
-                    bool pbSafe = (DateTime.Now - LastPBTime).TotalSeconds > 2.5;
-
-                    // Si toca PB pero no ha salido, espera (solo si somos 50+)
-                    if (player.Level >= MNK_Levels.PerfectBalance && pbCharges > 0 && !inPB && pbSafe) return false;
+                    // Forzamos esperar a PB (que ahora espera a Opo)
+                    if (player.Level >= MNK_Levels.PerfectBalance && pbCharges > 0 && !inPB && pbSafe)
+                        return false;
 
                     LastProposedAction = MNK_IDs.Brotherhood;
                     PressBind(config.Brotherhood);
@@ -364,16 +328,16 @@ namespace MyOwnACR.Logic
                 }
             }
 
-            // 4. RIDDLE OF WIND (Lv 72+)
-            if (op.UseRoW && player.Level >= MNK_Levels.RiddleOfWind && rofActive && CanUseRecast(am, MNK_IDs.RiddleOfWind))
+            // 4. RIDDLE OF WIND
+            if (player.Level >= MNK_Levels.RiddleOfWind && rofActive && CanUseRecast(am, MNK_IDs.RiddleOfWind))
             {
                 LastProposedAction = MNK_IDs.RiddleOfWind;
                 PressBind(config.RiddleOfWind);
                 return true;
             }
 
-            // 6. FORBIDDEN CHAKRA (Lv 54+)
-            if (op.UseForbiddenChakra && player.Level >= MNK_Levels.ForbiddenChakra && gauge.Chakra >= 5 && CanUseRecast(am, MNK_IDs.TheForbiddenChakra))
+            // 5. FORBIDDEN CHAKRA
+            if (player.Level >= MNK_Levels.ForbiddenChakra && gauge.Chakra >= 5 && CanUseRecast(am, MNK_IDs.TheForbiddenChakra))
             {
                 LastProposedAction = MNK_IDs.TheForbiddenChakra;
                 PressBind(config.ForbiddenChakra);
@@ -384,45 +348,32 @@ namespace MyOwnACR.Logic
         }
 
         // =========================================================================
-        // HELPERS CON NIVEL (Sustitución de habilidades)
+        // HELPERS
         // =========================================================================
         private static (uint, KeyBind) GetBestOpoAction(bool useAoE, MNKGauge gauge, JobConfig_MNK config, uint level)
         {
-            // AoE: Arm of the Destroyer (26)
             if (useAoE && level >= MNK_Levels.ArmOfTheDestroyer) return (MNK_IDs.ArmOfTheDestroyer, config.ArmOfTheDestroyer);
-
-            // Si < 50 no hay Dragon Kick -> Bootshine
             if (level < MNK_Levels.DragonKick) return (MNK_IDs.Bootshine, config.Bootshine);
-
             if (gauge.OpoOpoFury > 0) return (MNK_IDs.Bootshine, config.Bootshine);
             else return (MNK_IDs.DragonKick, config.DragonKick);
         }
 
         private static (uint, KeyBind) GetBestRaptorAction(bool useAoE, MNKGauge gauge, JobConfig_MNK config, uint level)
         {
-            // AoE: Four Point Fury (45)
             if (useAoE && level >= MNK_Levels.FourPointFury) return (MNK_IDs.FourPointFury, config.FourPointFury);
-
-            // Si < 18 no hay Twin Snakes -> True Strike
             if (level < MNK_Levels.TwinSnakes) return (MNK_IDs.TrueStrike, config.TrueStrike);
-
             if (gauge.RaptorFury > 0) return (MNK_IDs.TrueStrike, config.TrueStrike);
             else return (MNK_IDs.TwinSnakes, config.TwinSnakes);
         }
 
         private static (uint, KeyBind) GetBestCoeurlAction(bool useAoE, MNKGauge gauge, JobConfig_MNK config, uint level)
         {
-            // AoE: Rockbreaker (30)
             if (useAoE && level >= MNK_Levels.Rockbreaker) return (MNK_IDs.Rockbreaker, config.Rockbreaker);
-
-            // Si < 30 no hay Demolish -> Snap Punch
             if (level < MNK_Levels.Demolish) return (MNK_IDs.SnapPunch, config.SnapPunch);
-
             if (gauge.CoeurlFury > 0) return (MNK_IDs.SnapPunch, config.SnapPunch);
             else return (MNK_IDs.Demolish, config.Demolish);
         }
 
-        // ... [RESTO DE HELPERS SIN CAMBIOS] ...
         private static MNKGauge GetGauge() => Plugin.JobGauges.Get<MNKGauge>();
         private static void PressBind(KeyBind bind) => InputSender.Send(bind.Key, bind.Bar);
         private unsafe static bool CanUseRecast(ActionManager* am, uint id) => am->GetRecastTime(ActionType.Action, id) == 0;
@@ -448,11 +399,8 @@ namespace MyOwnACR.Logic
             int rawNadi = (int)gauge.Nadi;
             bool hasLunar = (rawNadi & 1) != 0;
             bool hasSolar = (rawNadi & 2) != 0;
-
             if (hasLunar && hasSolar) return MNK_IDs.PhantomRush;
-
             int distinctTypes = gauge.BeastChakra.Where(c => c != BeastChakra.None).Distinct().Count();
-
             if (distinctTypes == 3) return MNK_IDs.RisingPhoenix;
             else return MNK_IDs.ElixirField;
         }
