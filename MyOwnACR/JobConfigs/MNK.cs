@@ -24,7 +24,7 @@ namespace MyOwnACR.JobConfigs
         public KeyBind SnapPunch = new KeyBind(Keys.Num3, HotbarType.Barra1_Base); // Coeurl A
         public KeyBind Demolish = new KeyBind(Keys.Num3, HotbarType.Barra2_Ctrl); // Coeurl B (Mismo botón)
 
-        public KeyBind SixSidedStar = new KeyBind(Keys.MenorQue, HotbarType.Barra1_Base); // Finisher de velocidad
+        public KeyBind SixSidedStar = new KeyBind(Keys.G, HotbarType.Barra1_Base); // Finisher de velocidad SSS
 
         // ----------------------------------------------------------------------------------
         // 2. ROTACIÓN AOE (Barra 3 - Shift)

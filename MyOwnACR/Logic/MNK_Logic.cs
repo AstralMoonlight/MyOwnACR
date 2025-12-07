@@ -23,14 +23,25 @@ namespace MyOwnACR.Logic
         private const int MinActionDelayMs = 250;
         private static DateTime lastAnyActionTime = DateTime.MinValue;
         private static bool ogcdUsedSinceLastGcd = false;
+
+        // Timers de Protección
         private static DateTime LastPBTime = DateTime.MinValue;
+        private static DateTime LastTNTime = DateTime.MinValue; // <--- NUEVO TIMER PARA TN
 
         public static uint LastProposedAction = 0;
         private static string QueuedManualAction = "";
 
+        // =========================================================================
+        // MÉTODOS DE COMUNICACIÓN
+        // =========================================================================
         public static void QueueManualAction(string actionName)
         {
             QueuedManualAction = actionName;
+        }
+
+        public static string GetQueuedAction()
+        {
+            return QueuedManualAction;
         }
 
         public unsafe static void PrintDebugInfo(IChatGui chat)
@@ -43,9 +54,13 @@ namespace MyOwnACR.Logic
             GetActionCharges(am, MNK_IDs.PerfectBalance, player.Level, out int curPB, out int maxPB);
 
             chat.Print($"[ACR] Lv{player.Level} | Nadi: {gauge.Nadi} | PB: {curPB}/{maxPB}");
-            chat.Print($"[ACR] LastCombo: {am->Combo.Action}");
+            chat.Print($"[ACR] Posición: {CombatHelpers.GetPosition(player)}");
+            chat.Print($"[ACR] TN Reciente: {(DateTime.Now - LastTNTime).TotalSeconds:F1}s ago");
         }
 
+        // =========================================================================
+        // EXECUTE
+        // =========================================================================
         public unsafe static void Execute(
             ActionManager* am,
             IPlayerCharacter player,
@@ -55,7 +70,7 @@ namespace MyOwnACR.Logic
         {
             if (am == null || player == null || config == null) return;
 
-            // 1. MANUAL
+            // 1. MANEJO DE ACCIONES FORZADAS
             if (!string.IsNullOrEmpty(QueuedManualAction))
             {
                 KeyBind? bindToPress = null;
@@ -140,7 +155,7 @@ namespace MyOwnACR.Logic
                 return;
             }
 
-            // 4. GCD
+            // 4. GCD LOGIC
             var gcdCandidate = GetNextGcdCandidate(am, config, player, useAoE);
             if (gcdCandidate.HasValue) LastProposedAction = gcdCandidate.Value.actionId;
 
@@ -154,13 +169,53 @@ namespace MyOwnACR.Logic
 
             if (isActionReady)
             {
+                // ==========================================================
+                // LÓGICA AUTO TRUE NORTH (CON PROTECCIÓN ANTI-DOBLE)
+                // ==========================================================
+                if (operation.TrueNorth_Auto)
+                {
+                    // 1. Ver si ya tengo el buff
+                    bool hasBuff = HasStatus(player, MNK_IDs.Status_TrueNorth);
+
+                    // 2. Ver si lo usé hace menos de 2.5 segundos (Protección)
+                    bool justUsed = (now - LastTNTime).TotalSeconds < 2.5;
+
+                    if (!hasBuff && !justUsed)
+                    {
+                        var myPos = CombatHelpers.GetPosition(player);
+                        uint id = gcdCandidate.Value.actionId;
+                        bool needsTN = false;
+
+                        // Demolish -> REAR
+                        if (id == MNK_IDs.Demolish && myPos != Position.Rear) needsTN = true;
+
+                        // Snap Punch / Pouncing Coeurl -> FLANK
+                        if ((id == MNK_IDs.SnapPunch || id == MNK_IDs.PouncingCoeurl) && myPos != Position.Flank) needsTN = true;
+
+                        // Cargas y Estado
+                        bool hasCharges = am->GetCurrentCharges(MNK_IDs.TrueNorth) > 0;
+                        bool canPress = am->GetActionStatus(ActionType.Action, MNK_IDs.TrueNorth) == 0;
+
+                        if (needsTN && hasCharges && canPress)
+                        {
+                            LastProposedAction = MNK_IDs.TrueNorth;
+                            PressBind(config.TrueNorth);
+
+                            LastTNTime = now;        // <--- MARCAMOS EL TIEMPO
+                            lastAnyActionTime = now; // Bloqueo global breve
+                            return;
+                        }
+                    }
+                }
+                // ==========================================================
+
                 PressBind(gcdCandidate.Value.bind);
                 lastAnyActionTime = now;
                 ogcdUsedSinceLastGcd = false;
                 return;
             }
 
-            // 5. OGCD
+            // 5. OGCD LOGIC
             if (!ogcdUsedSinceLastGcd)
             {
                 if (TryUseOgcd(am, config, player, operation))
@@ -171,6 +226,10 @@ namespace MyOwnACR.Logic
                 }
             }
         }
+
+        // ... [RESTO DEL CÓDIGO (SELECTORES, OGCD LOGIC, HELPERS) IGUAL] ...
+        // (Copiar y pegar las funciones GetNextGcdCandidate, TryUseOgcd, etc. de la versión anterior)
+        // Asegúrate de que TryUseOgcd tenga la lógica de (lastWasOpo) que te di antes.
 
         // =========================================================================
         // SELECTOR DE GCD
@@ -233,7 +292,7 @@ namespace MyOwnACR.Logic
         }
 
         // =========================================================================
-        // OGCD LOGIC (CON REGLA ESTRICTA DE OPO-OPO)
+        // OGCD LOGIC
         // =========================================================================
         private unsafe static bool TryUseOgcd(
             ActionManager* am,
@@ -247,7 +306,6 @@ namespace MyOwnACR.Logic
             bool rofActive = HasStatus(player, MNK_IDs.Status_RiddleOfFire);
             if (player.Level < MNK_Levels.RiddleOfFire) rofActive = true;
 
-            // 1. RIDDLE OF FIRE
             if (player.Level >= MNK_Levels.RiddleOfFire && CanUseRecast(am, MNK_IDs.RiddleOfFire))
             {
                 LastProposedAction = MNK_IDs.RiddleOfFire;
@@ -255,7 +313,6 @@ namespace MyOwnACR.Logic
                 return true;
             }
 
-            // 2. PERFECT BALANCE (Regla: Siempre después de Opo-Opo)
             bool pbSafe = (DateTime.Now - LastPBTime).TotalSeconds > 2.5;
 
             int rawNadi = (int)gauge.Nadi;
@@ -271,7 +328,6 @@ namespace MyOwnACR.Logic
 
             if (player.Level >= MNK_Levels.PerfectBalance && !inPB && pbCharges > 0 && pbSafe)
             {
-                // VERIFICACIÓN DE ÚLTIMO GOLPE (OPO-OPO)
                 uint lastAction = am->Combo.Action;
                 bool lastWasOpo = lastAction == MNK_IDs.Bootshine ||
                                   lastAction == MNK_IDs.DragonKick ||
@@ -281,12 +337,10 @@ namespace MyOwnACR.Logic
 
                 bool shouldUse = false;
 
-                // A) OPENER: Ahora también exigimos que haya golpeado el primer Opo (Dragon Kick)
                 if (isOpener)
                 {
                     if (lastWasOpo) shouldUse = true;
                 }
-                // B) BURST (Mid-Fight): Solo si el último fue Opo
                 else if (rofActive)
                 {
                     if (lastWasOpo)
@@ -297,7 +351,6 @@ namespace MyOwnACR.Logic
                             shouldUse = true;
                     }
                 }
-                // C) OVERCAP: Si vamos a perder cargas, úsalo (sin importar Opo, para no perder DPS)
                 else if (pbCharges == pbMax)
                 {
                     float rofCD = am->GetRecastTime(ActionType.Action, MNK_IDs.RiddleOfFire);
@@ -313,12 +366,10 @@ namespace MyOwnACR.Logic
                 }
             }
 
-            // 3. BROTHERHOOD
             if (player.Level >= MNK_Levels.Brotherhood && CanUseRecast(am, MNK_IDs.Brotherhood))
             {
                 if (rofActive)
                 {
-                    // Forzamos esperar a PB (que ahora espera a Opo)
                     if (player.Level >= MNK_Levels.PerfectBalance && pbCharges > 0 && !inPB && pbSafe)
                         return false;
 
@@ -328,7 +379,6 @@ namespace MyOwnACR.Logic
                 }
             }
 
-            // 4. RIDDLE OF WIND
             if (player.Level >= MNK_Levels.RiddleOfWind && rofActive && CanUseRecast(am, MNK_IDs.RiddleOfWind))
             {
                 LastProposedAction = MNK_IDs.RiddleOfWind;
@@ -336,7 +386,6 @@ namespace MyOwnACR.Logic
                 return true;
             }
 
-            // 5. FORBIDDEN CHAKRA
             if (player.Level >= MNK_Levels.ForbiddenChakra && gauge.Chakra >= 5 && CanUseRecast(am, MNK_IDs.TheForbiddenChakra))
             {
                 LastProposedAction = MNK_IDs.TheForbiddenChakra;

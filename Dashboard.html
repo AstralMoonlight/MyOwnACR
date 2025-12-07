@@ -1,203 +1,263 @@
 <!DOCTYPE html>
-<html lang="es" data-theme="business">
+<html lang="es" data-theme="night">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ACR Remote</title>
+    <title>ACR Command Center</title>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.4.19/dist/full.min.css" rel="stylesheet" />
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
     <style>
-        /* Evita el "rebote" del scroll en móviles y la selección de texto */
-        body { overscroll-behavior: none; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
-        .config-scroll { max-height: 50vh; overflow-y: auto; }
-        
-        /* Estilo para botones grandes táctiles */
-        .btn-touch { @apply h-14 text-lg font-bold active:scale-95 transition-transform; }
-        
-        /* Grid responsivo */
-        .main-grid {
-            display: grid;
-            grid-template-columns: 1fr;
-            gap: 1rem;
+        body { 
+            overscroll-behavior: none; 
+            touch-action: manipulation; 
+            user-select: none; 
+            transition: border-color 0.3s ease;
+            border-left: 8px solid #ef4444; 
+            border-right: 8px solid #ef4444;
         }
-        @media (min-width: 768px) {
-            .main-grid { grid-template-columns: repeat(2, 1fr); }
+        .border-active { border-color: #58bfbf !important; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* Estilo de botones de acción MEJORADO para temas */
+        .btn-force {
+            transition: all 0.1s;
+            border-bottom: 4px solid rgba(0,0,0,0.1); 
+            /* Usamos colores base para que reaccione al tema */
+            background-color: oklch(var(--b1)); 
+            color: oklch(var(--bc));
         }
-        @media (min-width: 1024px) {
-            .main-grid { grid-template-columns: repeat(3, 1fr); }
+        .btn-force:hover {
+            background-color: oklch(var(--b2)); 
+        }
+        .btn-force:active {
+            transform: translateY(2px);
+            border-bottom: 0px;
+        }
+        
+        /* Estado de "En Cola" (Amarillo fijo) */
+        .btn-queued {
+            background-color: #fbbd23 !important; 
+            color: black !important;
+            border-color: #fbbd23 !important;
+            animation: pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .7; }
         }
     </style>
 </head>
-<body class="bg-base-300 font-mono text-base-content min-h-screen flex flex-col">
+<body class="bg-base-300 min-h-screen flex flex-col font-sans">
 
-    <div class="navbar bg-base-100 shadow-md z-20 sticky top-0">
+    <div class="navbar bg-base-100/90 backdrop-blur shadow-sm sticky top-0 z-50 h-16">
         <div class="flex-1">
-            <span class="text-xl font-black text-primary tracking-widest px-2">
-                <i class="fa-solid fa-ghost"></i> ACR
-            </span>
+            <div class="flex items-center gap-2 px-2">
+                <i class="fa-solid fa-ghost text-2xl text-primary"></i>
+                <div class="flex flex-col leading-none">
+                    <span class="font-black text-lg tracking-widest">MYOWN<span class="text-primary">ACR</span></span>
+                    <span class="text-[0.6rem] opacity-60 uppercase font-bold" id="connection-status">Desconectado</span>
+                </div>
+            </div>
         </div>
-        <div class="flex-none gap-2">
-            <div id="status-badge" class="badge badge-error font-bold animate-pulse">OFFLINE</div>
+        <div class="flex-none gap-3">
+            <label class="swap swap-rotate btn btn-circle btn-ghost btn-sm">
+                <input type="checkbox" id="theme-toggle" onchange="toggleTheme()" />
+                <i class="swap-on fill-current fa-solid fa-sun text-warning text-lg"></i>
+                <i class="swap-off fill-current fa-solid fa-moon text-info text-lg"></i>
+            </label>
+            <button class="btn btn-square btn-ghost" onclick="openConfigModal()">
+                <i class="fa-solid fa-sliders text-xl"></i>
+            </button>
         </div>
     </div>
 
-    <div class="p-3 flex-grow main-grid max-w-7xl mx-auto w-full">
+    <main class="flex-grow p-4 grid grid-cols-1 lg:grid-cols-12 gap-4 max-w-7xl mx-auto w-full">
 
-        <div class="flex flex-col gap-3">
-            <div class="stats stats-vertical shadow-lg bg-base-100 border border-base-content/5 w-full">
-                <div class="stat p-3">
-                    <div class="stat-title text-xs opacity-70">Objetivo</div>
-                    <div class="stat-value text-lg text-accent truncate" id="target">--</div>
-                    <div class="stat-desc font-bold text-secondary" id="hp">0%</div>
-                </div>
-                <div class="stat p-3">
-                    <div class="stat-title text-xs opacity-70">Siguiente Acción</div>
-                    <div class="stat-value text-xl text-warning truncate" id="combo">...</div>
+        <div class="lg:col-span-4 space-y-4">
+            <div class="card bg-base-100 shadow-sm">
+                <div class="card-body p-5">
+                    <div class="flex justify-between items-end mb-2">
+                        <span class="text-xs font-bold opacity-50 uppercase">Objetivo</span>
+                        <span class="text-xs font-mono opacity-50" id="hp-abs">0/0</span>
+                    </div>
+                    <h2 class="text-2xl font-black truncate text-secondary" id="target">--</h2>
+                    <div class="w-full bg-base-300 rounded-full h-4 mt-1 overflow-hidden relative">
+                        <div id="hp-bar" class="bg-secondary h-4 transition-all duration-300" style="width: 0%"></div>
+                        <span id="hp-text" class="absolute inset-0 flex items-center justify-center text-[0.6rem] font-bold text-white drop-shadow-md">0%</span>
+                    </div>
+                    <div class="divider my-2"></div>
+                    <div class="text-center">
+                        <span class="text-xs font-bold opacity-50 uppercase">Siguiente Habilidad</span>
+                        <div class="text-3xl font-black text-primary mt-1 truncate transition-all" id="combo">...</div>
+                    </div>
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-2">
-                <button class="btn btn-success btn-touch text-white" onclick="sendJson('START')">
+            <div class="grid grid-cols-2 gap-3">
+                <button class="btn btn-success btn-lg shadow text-white" onclick="toggleBot(true)">
                     <i class="fa-solid fa-play"></i> START
                 </button>
-                <button class="btn btn-error btn-touch text-white" onclick="sendJson('STOP')">
+                <button class="btn btn-error btn-lg shadow text-white" onclick="toggleBot(false)">
                     <i class="fa-solid fa-stop"></i> STOP
                 </button>
             </div>
-        </div>
 
-        <div class="card bg-base-100 shadow-lg border border-base-content/5">
-            <div class="card-body p-3">
-                <h2 class="card-title text-sm text-info uppercase tracking-wider mb-2">
-                    <i class="fa-solid fa-stopwatch"></i> Cooldowns
-                </h2>
-
-                <div class="form-control bg-base-200 rounded-lg p-2 mb-3 border border-warning/30">
-                    <label class="label cursor-pointer">
-                        <span class="label-text font-black text-warning"><i class="fa-solid fa-lock"></i> SAVE ALL CD</span> 
-                        <input type="checkbox" class="toggle toggle-warning" id="op_savecd" onchange="updateOps()" />
-                    </label>
-                </div>
-
-                <div class="grid grid-cols-2 gap-2 text-sm">
-                    <label class="label cursor-pointer bg-base-200 rounded px-2">
-                        <span class="label-text font-bold">Perf. Balance</span> 
-                        <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" id="op_pb" onchange="updateOps()" />
-                    </label>
-                    <label class="label cursor-pointer bg-base-200 rounded px-2">
-                        <span class="label-text font-bold">Riddle Fire</span> 
-                        <input type="checkbox" class="checkbox checkbox-sm checkbox-error" id="op_rof" onchange="updateOps()" />
-                    </label>
-                    <label class="label cursor-pointer bg-base-200 rounded px-2">
-                        <span class="label-text font-bold">Brotherhood</span> 
-                        <input type="checkbox" class="checkbox checkbox-sm checkbox-warning" id="op_bh" onchange="updateOps()" />
-                    </label>
-                    <label class="label cursor-pointer bg-base-200 rounded px-2">
-                        <span class="label-text font-bold">Riddle Wind</span> 
-                        <input type="checkbox" class="checkbox checkbox-sm checkbox-success" id="op_row" onchange="updateOps()" />
-                    </label>
-                    <label class="label cursor-pointer bg-base-200 rounded px-2 col-span-2">
-                        <span class="label-text font-bold">Forbidden Chakra</span> 
-                        <input type="checkbox" class="checkbox checkbox-sm checkbox-accent" id="op_fc" onchange="updateOps()" />
-                    </label>
-                </div>
+            <div class="form-control">
+                <label class="label cursor-pointer bg-base-100 p-4 rounded-xl shadow-sm hover:bg-base-200 transition">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2 bg-warning/10 rounded-lg text-warning"><i class="fa-solid fa-lock text-xl"></i></div>
+                        <div class="flex flex-col">
+                            <span class="font-bold text-lg">Save Cooldowns</span>
+                            <span class="text-xs opacity-60">Bloquea uso de recursos</span>
+                        </div>
+                    </div>
+                    <input type="checkbox" class="toggle toggle-warning toggle-lg" id="op_savecd" onchange="updateOps()" />
+                </label>
             </div>
         </div>
 
-        <div class="card bg-base-100 shadow-lg border border-base-content/5 md:col-span-2 lg:col-span-1">
-            <div class="card-body p-3">
-                <h2 class="card-title text-sm text-secondary uppercase tracking-wider mb-2">
-                    <i class="fa-solid fa-hand-pointer"></i> Forzar Acción
-                </h2>
-                <div class="grid grid-cols-2 gap-2">
-                    <button class="btn btn-neutral h-12" onclick="forceAction('SixSidedStar')">
-                        <i class="fa-solid fa-star text-warning"></i> 6-Side Star
-                    </button>
-                    <button class="btn btn-neutral h-12" onclick="forceAction('Sprint')">
-                        <i class="fa-solid fa-person-running text-success"></i> Sprint
-                    </button>
-                    <button class="btn btn-neutral h-12" onclick="forceAction('Feint')">Feint</button>
-                    <button class="btn btn-neutral h-12" onclick="forceAction('Mantra')">Mantra</button>
-                    <button class="btn btn-neutral h-12" onclick="forceAction('RiddleOfEarth')">RoEarth</button>
-                    <button class="btn btn-neutral h-12" onclick="forceAction('Bloodbath')">Blood</button>
+        <div class="lg:col-span-8 space-y-4">
+            <div class="card bg-base-100 shadow-sm">
+                <div class="card-body p-4">
+                    <h3 class="text-xs font-black opacity-50 uppercase mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-bolt"></i> Acciones Manuales
+                    </h3>
+                    <div class="grid grid-cols-3 sm:grid-cols-4 gap-3">
+                        <button class="btn btn-force h-14" data-action="SixSidedStar" onclick="forceAction(this)">
+                            <div class="flex flex-col items-center leading-none gap-1">
+                                <i class="fa-solid fa-star text-warning"></i><span class="text-[0.65rem]">SSS</span>
+                            </div>
+                        </button>
+                        <button class="btn btn-force h-14" data-action="Sprint" onclick="forceAction(this)">
+                            <div class="flex flex-col items-center leading-none gap-1">
+                                <i class="fa-solid fa-person-running text-success"></i><span class="text-[0.65rem]">Sprint</span>
+                            </div>
+                        </button>
+                        <button class="btn btn-force h-14" data-action="RiddleOfEarth" onclick="forceAction(this)">
+                            <div class="flex flex-col items-center leading-none gap-1">
+                                <i class="fa-solid fa-shield-halved text-info"></i><span class="text-[0.65rem]">RoEarth</span>
+                            </div>
+                        </button>
+                        <button class="btn btn-force h-14" data-action="Feint" onclick="forceAction(this)">
+                            <span class="text-xs font-bold">Feint</span>
+                        </button>
+                        <button class="btn btn-force h-14" data-action="Mantra" onclick="forceAction(this)">
+                            <span class="text-xs font-bold">Mantra</span>
+                        </button>
+                        <button class="btn btn-force h-14" data-action="Bloodbath" onclick="forceAction(this)">
+                            <div class="flex flex-col items-center leading-none gap-1">
+                                <i class="fa-solid fa-droplet text-error"></i><span class="text-[0.65rem]">Blood</span>
+                            </div>
+                        </button>
+                    </div>
                 </div>
             </div>
-        </div>
 
-        <div class="card bg-base-100 shadow-lg border border-base-content/5">
-            <div class="card-body p-3 flex flex-row justify-between items-center">
-                <div class="form-control">
-                    <label class="label cursor-pointer gap-2">
-                        <span class="label-text font-bold">AoE</span>
-                        <input type="checkbox" class="toggle toggle-info" id="op_aoe" onchange="updateOps()" />
-                    </label>
-                </div>
-                <div class="form-control">
-                    <label class="label cursor-pointer gap-2">
-                        <span class="label-text font-bold">TrueNorth</span>
-                        <input type="checkbox" class="toggle toggle-info" id="op_truenorth" onchange="updateOps()" />
-                    </label>
-                </div>
-                <button class="btn btn-square btn-sm btn-ghost" onclick="openConfigModal()">
-                    <i class="fa-solid fa-gear text-lg"></i>
-                </button>
-            </div>
-        </div>
+            <div class="card bg-base-100 shadow-sm">
+                <div class="card-body p-4">
+                    <h3 class="text-xs font-black opacity-50 uppercase mb-3 flex items-center gap-2">
+                        <i class="fa-solid fa-sliders"></i> Lógica & Cooldowns
+                    </h3>
+                    <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <div class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3">
+                            <span class="text-sm font-bold">AoE</span>
+                            <input type="checkbox" class="toggle toggle-sm toggle-info" id="op_aoe" onchange="updateOps()" />
+                        </div>
+                        <div class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3">
+                            <span class="text-sm font-bold">True North</span>
+                            <input type="checkbox" class="toggle toggle-sm toggle-info" id="op_truenorth" onchange="updateOps()" />
+                        </div>
 
-    </div>
-
-    <dialog id="config_modal" class="modal modal-bottom sm:modal-middle">
-        <div class="modal-box bg-base-200">
-            <h3 class="font-bold text-lg mb-4">Configuración Avanzada</h3>
-            
-            <div class="collapse collapse-arrow bg-base-100 border border-base-content/10 mb-2">
-                <input type="radio" name="config-accordion" checked="checked" /> 
-                <div class="collapse-title text-sm font-bold text-warning">SUPERVIVENCIA</div>
-                <div class="collapse-content pt-2 space-y-2">
-                    <div class="form-control">
-                        <label class="label cursor-pointer justify-start gap-3">
-                            <input type="checkbox" class="toggle toggle-warning toggle-sm" id="surv_enable" />
-                            <span class="label-text font-bold">Auto-Curación</span>
+                        <label class="label cursor-pointer bg-base-200 rounded-lg px-3 hover:bg-base-300">
+                            <span class="label-text text-xs font-bold uppercase">Perf. Balance</span> 
+                            <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" id="op_pb" onchange="updateOps()" />
+                        </label>
+                        <label class="label cursor-pointer bg-base-200 rounded-lg px-3 hover:bg-base-300">
+                            <span class="label-text text-xs font-bold uppercase">Riddle Fire</span> 
+                            <input type="checkbox" class="checkbox checkbox-sm checkbox-error" id="op_rof" onchange="updateOps()" />
+                        </label>
+                        <label class="label cursor-pointer bg-base-200 rounded-lg px-3 hover:bg-base-300">
+                            <span class="label-text text-xs font-bold uppercase">Brotherhood</span> 
+                            <input type="checkbox" class="checkbox checkbox-sm checkbox-warning" id="op_bh" onchange="updateOps()" />
+                        </label>
+                        <label class="label cursor-pointer bg-base-200 rounded-lg px-3 hover:bg-base-300">
+                            <span class="label-text text-xs font-bold uppercase">Riddle Wind</span> 
+                            <input type="checkbox" class="checkbox checkbox-sm checkbox-success" id="op_row" onchange="updateOps()" />
+                        </label>
+                        <label class="label cursor-pointer bg-base-200 rounded-lg px-3 hover:bg-base-300 md:col-span-2">
+                            <span class="label-text text-xs font-bold uppercase">Forbidden Chakra</span> 
+                            <input type="checkbox" class="checkbox checkbox-sm checkbox-accent" id="op_fc" onchange="updateOps()" />
                         </label>
                     </div>
-                    <div class="grid grid-cols-2 gap-2">
-                        <input type="number" id="surv_sw" class="input input-sm w-full text-center" placeholder="SW %" />
-                        <input type="number" id="surv_bb" class="input input-sm w-full text-center" placeholder="BB %" />
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <dialog id="config_modal" class="modal modal-bottom sm:modal-middle">
+        <div class="modal-box bg-base-100">
+            <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i class="fa-solid fa-gear"></i> Ajustes Internos</h3>
+            <div class="collapse collapse-arrow bg-base-200 mb-2">
+                <input type="radio" name="config-accordion" checked="checked" /> 
+                <div class="collapse-title text-sm font-bold">Auto-Supervivencia</div>
+                <div class="collapse-content space-y-3">
+                    <div class="form-control">
+                        <label class="label cursor-pointer justify-start gap-3">
+                            <input type="checkbox" class="toggle toggle-success toggle-sm" id="surv_enable" />
+                            <span class="label-text font-bold">Habilitar</span>
+                        </label>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="form-control"><label class="label"><span class="label-text text-xs">Second Wind (%)</span></label><input type="number" id="surv_sw" class="input input-sm input-bordered w-full" /></div>
+                        <div class="form-control"><label class="label"><span class="label-text text-xs">Bloodbath (%)</span></label><input type="number" id="surv_bb" class="input input-sm input-bordered w-full" /></div>
                     </div>
                 </div>
             </div>
-
-            <div class="collapse collapse-arrow bg-base-100 border border-base-content/10">
+            <div class="collapse collapse-arrow bg-base-200">
                 <input type="radio" name="config-accordion" /> 
-                <div class="collapse-title text-sm font-bold text-info">TECLAS</div>
-                <div class="collapse-content pt-2">
-                    <div id="skill-list" class="config-scroll space-y-1 pr-2"></div>
-                </div>
+                <div class="collapse-title text-sm font-bold">Mapeo de Teclas</div>
+                <div class="collapse-content"><div id="skill-list" class="config-scroll space-y-1 pr-1"></div></div>
             </div>
-
             <div class="modal-action">
-                <button class="btn btn-primary w-full" onclick="saveAllSettings()">GUARDAR</button>
+                <form method="dialog"><button class="btn btn-ghost">Cancelar</button></form>
+                <button class="btn btn-primary" onclick="saveAllSettings()">Guardar Cambios</button>
             </div>
         </div>
         <form method="dialog" class="modal-backdrop"><button>close</button></form>
     </dialog>
 
     <script>
-        // --- CONFIGURACIÓN DE RED ---
-        // SI USAS EL CELULAR, CAMBIA '127.0.0.1' POR LA IP LOCAL DE TU PC (ej. 192.168.1.X)
-        const ws = new WebSocket("ws://127.0.0.1:5055");
+        const HOST = "127.0.0.1:5055"; // Cambiar por tu IP local si usas móvil
+        const ws = new WebSocket(`ws://${HOST}`);
 
-        const KEYS = { 0x31:"1",0x32:"2",0x33:"3",0x34:"4",0x35:"5",0x36:"6",0x51:"Q",0x45:"E",0x52:"R",0x46:"F",0x47:"G",0xDC:"º/|",0xE2:"<" };
+        // Constantes (KEYS, BARS, ACTIONS) - Mismas de siempre, las omito para ahorrar espacio visual, 
+        // ¡ASEGURATE DE PEGAR TUS DICCIONARIOS AQUÍ!
+        const KEYS = { 0x31:"1",0x32:"2",0x33:"3",0x34:"4",0x35:"5",0x36:"6",0x51:"Q",0x45:"E",0x52:"R",0x46:"F",0x47:"G",0xDC:"º",0xE2:"<" };
         const BARS = { 0:"Base",1:"Ctrl",2:"Shift",3:"Alt",4:"Ctrl+Alt" };
-        const ACTIONS = { 53: "Bootshine", 54: "True Strike", 56: "Snap Punch", 61: "Twin Snakes", 62: "Arm of Destroyer", 66: "Demolish", 70: "Rockbreaker", 74: "Dragon Kick", 16473: "4-Point Fury", 25767: "Shadow Dest.", 36945: "Leaping Opo", 36946: "Rising Raptor", 36947: "Pouncing Coeurl", 25764: "Blitz", 25765: "Elixir Burst", 25768: "Phoenix", 25763: "Phantom Rush", 1181: "Riddle of Fire", 1185: "Brotherhood", 110: "Perfect Balance", 3843: "Fire's Reply", 3842: "Wind's Reply" };
+        const ACTIONS = { 
+            53:"Bootshine", 54:"True Strike", 56:"Snap Punch", 74:"Dragon Kick", 
+            61:"Twin Snakes", 66:"Demolish", 36945:"Leaping Opo", 36946:"Rising Raptor", 
+            36947:"Pouncing Coeurl", 25764:"Blitz", 25765:"Elixir", 25768:"Phoenix", 
+            25763:"Phantom", 110:"Perfect Bal.", 7394:"Riddle Earth"
+        };
 
         let currentConfig = {};
 
         ws.onopen = () => {
-            document.getElementById("status-badge").innerText = "ONLINE";
-            document.getElementById("status-badge").className = "badge badge-success font-bold";
+            const badge = document.getElementById("connection-status");
+            badge.innerText = "CONECTADO";
+            badge.className = "text-[0.6rem] uppercase font-bold text-success";
             sendJson("get_config");
+        };
+
+        ws.onclose = () => {
+            const badge = document.getElementById("connection-status");
+            badge.innerText = "DESCONECTADO";
+            badge.className = "text-[0.6rem] uppercase font-bold text-error";
         };
 
         ws.onmessage = (e) => {
@@ -206,99 +266,87 @@
             if (msg.type === "status") {
                 const d = msg.data;
                 document.getElementById("target").innerText = d.target || "--";
-                
                 const hpPct = d.target_max_hp > 0 ? Math.round((d.target_hp / d.target_max_hp) * 100) : 0;
-                document.getElementById("hp").innerText = hpPct + "%";
+                document.getElementById("hp-bar").style.width = hpPct + "%";
+                document.getElementById("hp-text").innerText = hpPct + "%";
+                document.getElementById("hp-abs").innerText = `${compactNum(d.target_hp)}/${compactNum(d.target_max_hp)}`;
 
-                // Next Action
                 const nextId = d.next_action;
-                let actionName = ACTIONS[nextId] || (nextId ? "ID " + nextId : "...");
-                const el = document.getElementById("combo");
-                
-                el.innerText = (nextId) ? `[${nextId}] ${actionName}` : "...";
-                if(nextId) el.classList.add("text-warning");
-                else el.classList.remove("text-warning");
+                const nextName = ACTIONS[nextId] || (nextId ? "ID " + nextId : "...");
+                const comboEl = document.getElementById("combo");
+                comboEl.innerText = (nextId) ? nextName : "...";
+                if(nextId) comboEl.classList.add("text-primary", "scale-110");
+                else comboEl.classList.remove("text-primary", "scale-110");
 
-                document.body.style.borderColor = (d.status === "COMBATIENDO") ? "#22c55e" : "transparent";
-                if(d.status === "COMBATIENDO") document.body.classList.add("border-x-4", "border-green-500");
-                else document.body.classList.remove("border-x-4", "border-green-500");
+                // --- LÓGICA DE BORDE GLOBAL (SIEMPRE ACTIVA) ---
+                // Asumimos que el backend debería enviar isRunning, pero si no, 
+                // usamos la variable local 'd.status' que dice 'COMBATIENDO' o 'IDLE'.
+                // Para saber si el BOT está prendido, necesitaríamos enviar 'isRunning' desde C#.
+                // Por ahora, si hay status, asumimos verde.
+                
+                // --- LÓGICA DE BOTONES EN COLA (REACTIVA) ---
+                const queuedAction = d.queued_action; // Esto debe venir del C#
+                
+                // Recorremos todos los botones de acción manual
+                document.querySelectorAll('.btn-force').forEach(btn => {
+                    const actionName = btn.getAttribute('data-action');
+                    if (actionName === queuedAction && queuedAction !== "") {
+                        btn.classList.add('btn-queued');
+                    } else {
+                        btn.classList.remove('btn-queued');
+                    }
+                });
             }
 
             if (msg.type === "config_data") {
                 const cfg = msg.data;
                 currentConfig = cfg;
-                
-                // Cargar Operaciones (Toggles)
-                if (cfg.Operation) {
-                    const op = cfg.Operation;
-                    setCheck("op_aoe", op.AoE_Enabled);
-                    setCheck("op_truenorth", op.TrueNorth_Auto);
-                    
-                    // Nuevos Toggles
-                    setCheck("op_savecd", op.SaveCD);
-                    setCheck("op_pb", op.UsePB);
-                    setCheck("op_rof", op.UseRoF);
-                    setCheck("op_bh", op.UseBrotherhood);
-                    setCheck("op_row", op.UseRoW);
-                    setCheck("op_fc", op.UseForbiddenChakra);
-                }
-
-                if (cfg.Survival) {
-                    setCheck("surv_enable", cfg.Survival.Enabled);
-                    document.getElementById("surv_sw").value = cfg.Survival.MinHp_SecondWind;
-                    document.getElementById("surv_bb").value = cfg.Survival.MinHp_Bloodbath;
-                }
-
+                if (cfg.Operation) loadOps(cfg.Operation);
+                if (cfg.Survival) loadSurv(cfg.Survival);
                 if (cfg.Monk) renderKeyList(cfg.Monk);
             }
         };
 
-        function setCheck(id, val) {
-            const el = document.getElementById(id);
-            if(el) el.checked = val;
+        function toggleTheme() {
+            const html = document.querySelector('html');
+            const isDark = html.getAttribute('data-theme') === 'night';
+            html.setAttribute('data-theme', isDark ? 'winter' : 'night');
         }
 
-        function sendJson(cmd, data = null) {
-            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ cmd: cmd, data: data }));
+        function toggleBot(state) {
+            sendJson(state ? 'START' : 'STOP');
+            if (state) document.body.classList.add("border-active");
+            else document.body.classList.remove("border-active");
         }
 
-        function forceAction(actionName) {
-            if(navigator.vibrate) navigator.vibrate(50); 
+        function forceAction(btn) {
+            const actionName = btn.getAttribute('data-action');
+            if(navigator.vibrate) navigator.vibrate(50);
             sendJson("force_action", actionName);
+            // YA NO PONEMOS CLASE AQUÍ, ESPERAMOS AL WEBSOCKET
         }
 
-        // Enviar cambios de toggles al instante
         function updateOps() {
             const data = {
-                AoE_Enabled: document.getElementById("op_aoe").checked,
-                TrueNorth_Auto: document.getElementById("op_truenorth").checked,
-                SixSidedStar_Use: false, // Deprecated toggle
-                
-                SaveCD: document.getElementById("op_savecd").checked,
-                UsePB: document.getElementById("op_pb").checked,
-                UseRoF: document.getElementById("op_rof").checked,
-                UseBrotherhood: document.getElementById("op_bh").checked,
-                UseRoW: document.getElementById("op_row").checked,
-                UseForbiddenChakra: document.getElementById("op_fc").checked
+                AoE_Enabled: getCheck("op_aoe"),
+                TrueNorth_Auto: getCheck("op_truenorth"),
+                SaveCD: getCheck("op_savecd"),
+                UsePB: getCheck("op_pb"),
+                UseRoF: getCheck("op_rof"),
+                UseBrotherhood: getCheck("op_bh"),
+                UseRoW: getCheck("op_row"),
+                UseForbiddenChakra: getCheck("op_fc")
             };
             sendJson("save_operation", data);
         }
 
-        function openConfigModal() {
-            sendJson("get_config");
-            document.getElementById('config_modal').showModal();
-        }
-
         function saveAllSettings() {
-            // Guardar Survival
             const survData = {
-                Enabled: document.getElementById("surv_enable").checked,
+                Enabled: getCheck("surv_enable"),
                 MinHp_SecondWind: parseInt(document.getElementById("surv_sw").value) || 0,
                 MinHp_Bloodbath: parseInt(document.getElementById("surv_bb").value) || 0
             };
             sendJson("save_survival", survData);
-            
-            // Guardar Teclas
             if (currentConfig.Monk) {
                 for (const skill of Object.keys(currentConfig.Monk)) {
                     const barEl = document.getElementById(`bar_${skill}`);
@@ -313,24 +361,27 @@
             document.getElementById('config_modal').close();
         }
 
-        // Render Key list (sin cambios)
+        function sendJson(cmd, data = null) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ cmd: cmd, data: data })); }
+        function getCheck(id) { return document.getElementById(id).checked; }
+        function setCheck(id, val) { const el = document.getElementById(id); if(el) el.checked = val; }
+        function compactNum(num) { return Intl.NumberFormat('en-US', { notation: "compact", maximumFractionDigits: 1 }).format(num); }
+        function loadOps(op) {
+            setCheck("op_aoe", op.AoE_Enabled); setCheck("op_truenorth", op.TrueNorth_Auto); setCheck("op_savecd", op.SaveCD);
+            setCheck("op_pb", op.UsePB); setCheck("op_rof", op.UseRoF); setCheck("op_bh", op.UseBrotherhood); setCheck("op_row", op.UseRoW); setCheck("op_fc", op.UseForbiddenChakra);
+        }
+        function loadSurv(s) { setCheck("surv_enable", s.Enabled); document.getElementById("surv_sw").value = s.MinHp_SecondWind; document.getElementById("surv_bb").value = s.MinHp_Bloodbath; }
         function renderKeyList(monkConfig) {
             const container = document.getElementById("skill-list");
             container.innerHTML = "";
             for (const [skill, bind] of Object.entries(monkConfig)) {
                 const row = document.createElement("div");
-                row.className = "flex justify-between items-center bg-base-100 p-2 rounded text-xs border border-base-content/5";
-                row.innerHTML = `<span class="font-bold text-accent uppercase tracking-wider w-1/3 truncate">${skill}</span>
-                <div class="join w-2/3 justify-end">
-                    <select id="bar_${skill}" class="select select-xs select-ghost join-item bg-base-200">${opts(BARS, bind.Bar)}</select>
-                    <select id="key_${skill}" class="select select-xs select-ghost join-item bg-base-200 font-mono">${opts(KEYS, bind.Key)}</select>
-                </div>`;
+                row.className = "flex justify-between items-center bg-base-100 p-2 rounded mb-1 text-xs border border-base-content/5";
+                row.innerHTML = `<span class="font-bold opacity-70 w-1/3 truncate">${skill}</span><div class="join w-2/3 justify-end"><select id="bar_${skill}" class="select select-xs select-ghost join-item bg-base-200">${opts(BARS, bind.Bar)}</select><select id="key_${skill}" class="select select-xs select-ghost join-item bg-base-200 font-mono">${opts(KEYS, bind.Key)}</select></div>`;
                 container.appendChild(row);
             }
         }
-        function opts(dict, current) {
-            return Object.entries(dict).map(([k,v]) => `<option value="${k}" ${k==current?'selected':''}>${v}</option>`).join('');
-        }
+        function opts(dict, current) { return Object.entries(dict).map(([k,v]) => `<option value="${k}" ${k==current?'selected':''}>${v}</option>`).join(''); }
+        function openConfigModal() { sendJson("get_config"); document.getElementById('config_modal').showModal(); }
     </script>
 </body>
 </html>

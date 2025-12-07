@@ -13,6 +13,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Dalamud.Game.ClientState.Objects.Types;
@@ -51,6 +52,9 @@ namespace MyOwnACR
         private DateTime lastSentTime = DateTime.MinValue;
         private bool isSending = false;
 
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
         public Plugin()
         {
             Config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
@@ -78,6 +82,17 @@ namespace MyOwnACR
             try { httpListener?.Abort(); } catch { }
             try { activeSocket?.Dispose(); } catch { }
             cts.Dispose();
+        }
+
+        private void FocusGame()
+        {
+            try
+            {
+                var process = Process.GetCurrentProcess();
+                IntPtr hWnd = process.MainWindowHandle;
+                if (hWnd != IntPtr.Zero) SetForegroundWindow(hWnd);
+            }
+            catch { }
         }
 
         private void OnCommand(string command, string args)
@@ -161,6 +176,7 @@ namespace MyOwnACR
                         job = jobId,
                         combo = combo,
                         next_action = Logic.MNK_Logic.LastProposedAction,
+                        queued_action = Logic.MNK_Logic.GetQueuedAction(),
                         status = status,
                         player_name = playerName,
                         target_hp = (int)targetHp,
@@ -195,9 +211,7 @@ namespace MyOwnACR
                     if (httpListener != null) try { httpListener.Close(); } catch { }
                     httpListener = new HttpListener();
 
-                    // IMPORTANTE: Escuchar en todas las IPs para permitir acceso móvil
-                    // Requiere permisos de administrador o firewall
-                    //httpListener.Prefixes.Add("http://*:5055/");
+                    // Recuerda: "*" requiere Admin. "127.0.0.1" no.
                     httpListener.Prefixes.Add("http://127.0.0.1:5055/");
 
                     httpListener.Start();
@@ -211,11 +225,7 @@ namespace MyOwnACR
                             activeSocket = wsContext.WebSocket;
                             await ReceiveCommands(activeSocket, token);
                         }
-                        else
-                        {
-                            context.Response.StatusCode = 400;
-                            context.Response.Close();
-                        }
+                        else { context.Response.StatusCode = 400; context.Response.Close(); }
                     }
                 }
                 catch { await Task.Delay(2000, token); }
@@ -245,15 +255,24 @@ namespace MyOwnACR
                 JObject cmd = JObject.Parse(json);
                 string type = cmd["cmd"]?.ToString() ?? "";
 
-                if (type == "START") isRunning = true;
-                if (type == "STOP") isRunning = false;
+                if (type == "START")
+                {
+                    isRunning = true;
+                    Chat.Print(">> START <<");
+                    FocusGame();
+                }
 
-                // --- MANEJO DE ACCIONES FORZADAS DESDE EL MÓVIL ---
+                if (type == "STOP")
+                {
+                    isRunning = false;
+                    Chat.Print(">> STOP <<");
+                }
+
                 if (type == "force_action")
                 {
                     string actionName = cmd["data"]?.ToString() ?? "";
                     Logic.MNK_Logic.QueueManualAction(actionName);
-                    // Chat.Print("[ACR] Forzando: " + actionName);
+                    FocusGame();
                 }
 
                 if (type == "get_config")
@@ -272,10 +291,14 @@ namespace MyOwnACR
                     var newSurv = cmd["data"]?.ToObject<SurvivalConfig>();
                     if (newSurv != null) { Config.Survival = newSurv; Config.Save(); }
                 }
+
+                // === AQUÍ ESTÁ EL CAMBIO PARA LOS TOGGLES ===
                 if (type == "save_operation")
                 {
                     var newOp = cmd["data"]?.ToObject<OperationalSettings>();
                     if (newOp != null) { Config.Operation = newOp; Config.Save(); }
+
+                    FocusGame(); // <--- AHORA ENFOCA EL JUEGO AL CAMBIAR AJUSTES
                 }
             }
             catch { }

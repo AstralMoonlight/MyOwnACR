@@ -93,5 +93,6 @@ namespace MyOwnACR.GameData
         public const ushort Status_CoeurlForm = 109;
         public const ushort Status_FiresRumination = 3843; // Buff para usar Fire's Reply
         public const ushort Status_WindsRumination = 3842; // Buff para usar Wind's Reply
+        public const ushort Status_TrueNorth = 1250;
     }
 }
