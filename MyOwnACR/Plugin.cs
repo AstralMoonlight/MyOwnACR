@@ -21,7 +21,6 @@ using Lumina.Excel.Sheets;
 
 namespace MyOwnACR
 {
-    // Estructura de mensajes Web
     public class WebMessage
     {
         public string type { get; set; } = "info";
@@ -57,19 +56,9 @@ namespace MyOwnACR
             Config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
             Config.Initialize(PluginInterface);
 
-            // --- COMANDOS ---
             CommandManager.AddHandler("/acr", new CommandInfo(OnCommand) { HelpMessage = "Activar/Pausar Bot" });
-
-            CommandManager.AddHandler("/acrstatus", new CommandInfo(OnCommandStatus)
-            {
-                HelpMessage = "Muestra los estados (buffs) actuales del jugador."
-            });
-
-            // Comando de Debugging
-            CommandManager.AddHandler("/acrdebug", new CommandInfo(OnCommandDebug)
-            {
-                HelpMessage = "Muestra información interna de la lógica (Nadis, Chakras, Intención)."
-            });
+            CommandManager.AddHandler("/acrstatus", new CommandInfo(OnCommandStatus) { HelpMessage = "Ver Buffs" });
+            CommandManager.AddHandler("/acrdebug", new CommandInfo(OnCommandDebug) { HelpMessage = "Debug Logic" });
 
             cts = new CancellationTokenSource();
             Task.Run(() => StartWebServer(cts.Token));
@@ -100,36 +89,22 @@ namespace MyOwnACR
         private void OnCommandStatus(string command, string args)
         {
             var player = ObjectTable.LocalPlayer;
-            if (player == null)
-            {
-                Chat.Print("No se encontró al jugador.");
-                return;
-            }
+            if (player == null) return;
 
-            // --- CORRECCIÓN AQUÍ: Especificamos el namespace completo para evitar ambigüedad ---
             var statusSheet = DataManager.GetExcelSheet<Lumina.Excel.Sheets.Status>();
-
             Chat.Print("====== BUFFS ACTIVOS ======");
-
             foreach (var status in player.StatusList)
             {
                 if (status.StatusId == 0) continue;
-
                 string name = "Desconocido";
                 if (statusSheet != null && statusSheet.TryGetRow(status.StatusId, out var row))
-                {
                     name = row.Name.ToString();
-                }
-
                 Chat.Print($"[{status.StatusId}] {name} ({status.RemainingTime:F1}s)");
             }
-            Chat.Print("===========================");
         }
 
-        // Handler para /acrdebug
         private void OnCommandDebug(string command, string args)
         {
-            // Llama a la función estática de MNK_Logic
             Logic.MNK_Logic.PrintDebugInfo(Chat);
         }
 
@@ -137,29 +112,20 @@ namespace MyOwnACR
         {
             try
             {
-                if (!isRunning)
-                    return;
+                if (!isRunning) return;
 
                 var player = ObjectTable.LocalPlayer;
-                if (player == null) return;
-
-                if (player.CurrentHp <= 0 || player.TargetObject == null)
-                    return;
+                if (player == null || player.CurrentHp <= 0 || player.TargetObject == null) return;
 
                 ActionManager* am = ActionManager.Instance();
                 if (am == null) return;
 
                 var jobId = player.ClassJob.RowId;
 
-                // --- LÓGICA DE COMBATE ---
-                if (jobId == 20 || jobId == 2) // Monk / Pugilist
+                if (jobId == 20 || jobId == 2)
                 {
                     bool survivalActionUsed = Logic.Survival.Execute(
-                        am,
-                        player,
-                        Config.Survival,
-                        Config.Monk.SecondWind,
-                        Config.Monk.Bloodbath
+                        am, player, Config.Survival, Config.Monk.SecondWind, Config.Monk.Bloodbath
                     );
 
                     if (!survivalActionUsed)
@@ -168,19 +134,16 @@ namespace MyOwnACR
                     }
                 }
 
-                // --- ENVÍO DE ESTADO AL PANEL WEB ---
                 var now = DateTime.Now;
                 if ((now - lastSentTime).TotalMilliseconds >= 100)
                 {
                     lastSentTime = now;
-
                     var playerName = player.Name.TextValue;
                     var targetName = player.TargetObject?.Name?.TextValue ?? "--";
                     var combo = am->Combo.Action;
 
                     uint targetHp = 0;
                     uint targetMaxHp = 0;
-
                     if (player.TargetObject is Dalamud.Game.ClientState.Objects.Types.ICharacter tChar)
                     {
                         targetHp = tChar.CurrentHp;
@@ -197,10 +160,7 @@ namespace MyOwnACR
                         target = targetName,
                         job = jobId,
                         combo = combo,
-
-                        // Enviamos la intención futura para el panel
                         next_action = Logic.MNK_Logic.LastProposedAction,
-
                         status = status,
                         player_name = playerName,
                         target_hp = (int)targetHp,
@@ -208,17 +168,12 @@ namespace MyOwnACR
                     });
                 }
             }
-            catch
-            {
-                // Chat.PrintError("[MyOwnACR] Error en OnGameUpdate");
-            }
+            catch { }
         }
 
         private async Task SendJsonAsync(string type, object content)
         {
-            if (activeSocket == null || activeSocket.State != WebSocketState.Open || isSending)
-                return;
-
+            if (activeSocket == null || activeSocket.State != WebSocketState.Open || isSending) return;
             isSending = true;
             try
             {
@@ -231,30 +186,25 @@ namespace MyOwnACR
             finally { isSending = false; }
         }
 
-        // --- SERVIDOR WEB ---
         private async Task StartWebServer(CancellationToken token)
         {
             while (!token.IsCancellationRequested)
             {
                 try
                 {
-                    if (httpListener != null)
-                    {
-                        try { httpListener.Close(); } catch { }
-                    }
-
+                    if (httpListener != null) try { httpListener.Close(); } catch { }
                     httpListener = new HttpListener();
+
+                    // IMPORTANTE: Escuchar en todas las IPs para permitir acceso móvil
+                    // Requiere permisos de administrador o firewall
+                    //httpListener.Prefixes.Add("http://*:5055/");
                     httpListener.Prefixes.Add("http://127.0.0.1:5055/");
+
                     httpListener.Start();
 
                     while (httpListener.IsListening && !token.IsCancellationRequested)
                     {
-                        var contextTask = httpListener.GetContextAsync();
-                        var completedTask = await Task.WhenAny(contextTask, Task.Delay(-1, token));
-                        if (completedTask != contextTask)
-                            return;
-
-                        var context = await contextTask;
+                        var context = await httpListener.GetContextAsync();
                         if (context.Request.IsWebSocketRequest)
                         {
                             var wsContext = await context.AcceptWebSocketAsync(null);
@@ -280,9 +230,7 @@ namespace MyOwnACR
                 try
                 {
                     var result = await s.ReceiveAsync(new ArraySegment<byte>(buffer), token);
-                    if (result.MessageType == WebSocketMessageType.Close)
-                        break;
-
+                    if (result.MessageType == WebSocketMessageType.Close) break;
                     string jsonMsg = Encoding.UTF8.GetString(buffer, 0, result.Count);
                     HandleJsonCommand(jsonMsg);
                 }
@@ -297,40 +245,28 @@ namespace MyOwnACR
                 JObject cmd = JObject.Parse(json);
                 string type = cmd["cmd"]?.ToString() ?? "";
 
-                if (type == "START")
-                {
-                    isRunning = true;
-                    Chat.Print(">> START <<");
-                }
+                if (type == "START") isRunning = true;
+                if (type == "STOP") isRunning = false;
 
-                if (type == "STOP")
+                // --- MANEJO DE ACCIONES FORZADAS DESDE EL MÓVIL ---
+                if (type == "force_action")
                 {
-                    isRunning = false;
-                    Chat.Print(">> STOP <<");
+                    string actionName = cmd["data"]?.ToString() ?? "";
+                    Logic.MNK_Logic.QueueManualAction(actionName);
+                    // Chat.Print("[ACR] Forzando: " + actionName);
                 }
 
                 if (type == "get_config")
                 {
-                    var payload = new
-                    {
-                        Monk = Config.Monk,
-                        Survival = Config.Survival,
-                        Operation = Config.Operation
-                    };
+                    var payload = new { Monk = Config.Monk, Survival = Config.Survival, Operation = Config.Operation };
                     _ = SendJsonAsync("config_data", payload);
                 }
 
                 if (type == "save_config")
                 {
-                    var newMonkConfig = cmd["data"]?.ToObject<JobConfigs.JobConfig_MNK>();
-                    if (newMonkConfig != null)
-                    {
-                        Config.Monk = newMonkConfig;
-                        Config.Save();
-                        Chat.Print("[ACR] Configuración de Monk actualizada.");
-                    }
+                    var newMonk = cmd["data"]?.ToObject<MyOwnACR.JobConfigs.JobConfig_MNK>();
+                    if (newMonk != null) { Config.Monk = newMonk; Config.Save(); }
                 }
-
                 if (type == "save_survival")
                 {
                     var newSurv = cmd["data"]?.ToObject<SurvivalConfig>();
@@ -342,10 +278,7 @@ namespace MyOwnACR
                     if (newOp != null) { Config.Operation = newOp; Config.Save(); }
                 }
             }
-            catch (Exception ex)
-            {
-                Chat.PrintError("Error recibiendo comando web: " + ex.Message);
-            }
+            catch { }
         }
     }
 }

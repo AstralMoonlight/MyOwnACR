@@ -14,24 +14,34 @@ namespace MyOwnACR
         public KeyBind() { }
     }
 
-    // --- NUEVA CONFIGURACIÓN DE SUPERVIVENCIA ---
+    // --- CONFIGURACIÓN DE SUPERVIVENCIA ---
     [Serializable]
     public class SurvivalConfig
     {
-        public bool Enabled { get; set; } = false; // Toggle Maestro (Por defecto apagado para Ultimate)
+        public bool Enabled { get; set; } = false; // Toggle Maestro
 
-        public int MinHp_SecondWind { get; set; } = 40; // Usar al 40% HP
-        public int MinHp_Bloodbath { get; set; } = 60;  // Usar al 60% HP
+        public int MinHp_SecondWind { get; set; } = 40;
+        public int MinHp_Bloodbath { get; set; } = 60;
     }
-    // Nueva clase para ajustes operativos
+
+    // --- AJUSTES OPERATIVOS Y TOGGLES DE COMBATE ---
     [Serializable]
     public class OperationalSettings
     {
-        public bool AoE_Enabled { get; set; } = true; // Toggle Maestro de AoE (Por defecto ON)
-        public bool TrueNorth_Auto { get; set; } = false; // Auto True North (Por defecto OFF para Ultimates)
-        public bool SixSidedStar_Use { get; set; } = false; // Usar Six Sided Star (Por defecto OFF)
-    }
+        // Opciones Generales
+        public bool AoE_Enabled { get; set; } = true;
+        public bool TrueNorth_Auto { get; set; } = false;
+        public bool SixSidedStar_Use { get; set; } = false;
 
+        // Nuevos Toggles para el Dashboard (Gestión de Cooldowns)
+        public bool SaveCD { get; set; } = false; // Bloqueo maestro de CDs (para fases de downtime)
+
+        public bool UsePB { get; set; } = true;              // Perfect Balance
+        public bool UseRoF { get; set; } = true;             // Riddle of Fire
+        public bool UseRoW { get; set; } = true;             // Riddle of Wind
+        public bool UseBrotherhood { get; set; } = true;     // Brotherhood
+        public bool UseForbiddenChakra { get; set; } = true; // The Forbidden Chakra
+    }
 
     [Serializable]
     public class Configuration : IPluginConfiguration
@@ -41,7 +51,7 @@ namespace MyOwnACR
         // Configuración por Job
         public JobConfig_MNK Monk = new JobConfig_MNK();
 
-        // Configuración Global de Supervivencia
+        // Configuración Global
         public SurvivalConfig Survival = new SurvivalConfig();
         public OperationalSettings Operation = new OperationalSettings();
 

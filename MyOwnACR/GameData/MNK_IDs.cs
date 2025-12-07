@@ -1,6 +1,6 @@
-namespace MyOwnACR
+namespace MyOwnACR.GameData
 {
-    public static class MonkIDs
+    public static class MNK_IDs
     {
         // =========================================================================
         // 1. COMBO SINGLE TARGET (GCD)
@@ -47,7 +47,7 @@ namespace MyOwnACR
         // =========================================================================
 
         // Chakras
-        public const uint ForbiddenChakra = 3547;  // Single Target (5 Chakras)
+        public const uint TheForbiddenChakra = 3547;  // Single Target (5 Chakras)
         public const uint Enlightenment = 16474; // AoE (5 Chakras)
         public const uint Meditation = 3546;  // Cargar Chakra (fuera de combate)
         public const uint InCombatMeditation = 36970; // (Steeled Meditation)
@@ -79,5 +79,18 @@ namespace MyOwnACR
         public const uint Feint = 7549;  // Reducir daño físico del boss
         public const uint ArmsLength = 7548;  // Anti-empuje
         public const uint TrueNorth = 7546;  // Ignorar posicionales
+
+        // =========================================================================
+        // STATUSES (BUFFS) - ushort
+        // =========================================================================
+        public const ushort Status_PerfectBalance = 110;
+        public const ushort Status_RiddleOfFire = 1181;
+        public const ushort Status_Brotherhood = 1185;
+        public const ushort Status_FormlessFist = 2513;
+        public const ushort Status_OpoOpoForm = 107;
+        public const ushort Status_RaptorForm = 108;
+        public const ushort Status_CoeurlForm = 109;
+        public const ushort Status_FiresRumination = 3843; // Buff para usar Fire's Reply
+        public const ushort Status_WindsRumination = 3842; // Buff para usar Wind's Reply
     }
 }

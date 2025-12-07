@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="business">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ACR Remote</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.4.19/dist/full.min.css" rel="stylesheet" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Evita el "rebote" del scroll en móviles y la selección de texto */
+        body { overscroll-behavior: none; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+        .config-scroll { max-height: 50vh; overflow-y: auto; }
+        
+        /* Estilo para botones grandes táctiles */
+        .btn-touch { @apply h-14 text-lg font-bold active:scale-95 transition-transform; }
+        
+        /* Grid responsivo */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+        @media (min-width: 768px) {
+            .main-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (min-width: 1024px) {
+            .main-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+    </style>
+</head>
+<body class="bg-base-300 font-mono text-base-content min-h-screen flex flex-col">
+
+    <div class="navbar bg-base-100 shadow-md z-20 sticky top-0">
+        <div class="flex-1">
+            <span class="text-xl font-black text-primary tracking-widest px-2">
+                <i class="fa-solid fa-ghost"></i> ACR
+            </span>
+        </div>
+        <div class="flex-none gap-2">
+            <div id="status-badge" class="badge badge-error font-bold animate-pulse">OFFLINE</div>
+        </div>
+    </div>
+
+    <div class="p-3 flex-grow main-grid max-w-7xl mx-auto w-full">
+
+        <div class="flex flex-col gap-3">
+            <div class="stats stats-vertical shadow-lg bg-base-100 border border-base-content/5 w-full">
+                <div class="stat p-3">
+                    <div class="stat-title text-xs opacity-70">Objetivo</div>
+                    <div class="stat-value text-lg text-accent truncate" id="target">--</div>
+                    <div class="stat-desc font-bold text-secondary" id="hp">0%</div>
+                </div>
+                <div class="stat p-3">
+                    <div class="stat-title text-xs opacity-70">Siguiente Acción</div>
+                    <div class="stat-value text-xl text-warning truncate" id="combo">...</div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+                <button class="btn btn-success btn-touch text-white" onclick="sendJson('START')">
+                    <i class="fa-solid fa-play"></i> START
+                </button>
+                <button class="btn btn-error btn-touch text-white" onclick="sendJson('STOP')">
+                    <i class="fa-solid fa-stop"></i> STOP
+                </button>
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-lg border border-base-content/5">
+            <div class="card-body p-3">
+                <h2 class="card-title text-sm text-info uppercase tracking-wider mb-2">
+                    <i class="fa-solid fa-stopwatch"></i> Cooldowns
+                </h2>
+
+                <div class="form-control bg-base-200 rounded-lg p-2 mb-3 border border-warning/30">
+                    <label class="label cursor-pointer">
+                        <span class="label-text font-black text-warning"><i class="fa-solid fa-lock"></i> SAVE ALL CD</span> 
+                        <input type="checkbox" class="toggle toggle-warning" id="op_savecd" onchange="updateOps()" />
+                    </label>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 text-sm">
+                    <label class="label cursor-pointer bg-base-200 rounded px-2">
+                        <span class="label-text font-bold">Perf. Balance</span> 
+                        <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" id="op_pb" onchange="updateOps()" />
+                    </label>
+                    <label class="label cursor-pointer bg-base-200 rounded px-2">
+                        <span class="label-text font-bold">Riddle Fire</span> 
+                        <input type="checkbox" class="checkbox checkbox-sm checkbox-error" id="op_rof" onchange="updateOps()" />
+                    </label>
+                    <label class="label cursor-pointer bg-base-200 rounded px-2">
+                        <span class="label-text font-bold">Brotherhood</span> 
+                        <input type="checkbox" class="checkbox checkbox-sm checkbox-warning" id="op_bh" onchange="updateOps()" />
+                    </label>
+                    <label class="label cursor-pointer bg-base-200 rounded px-2">
+                        <span class="label-text font-bold">Riddle Wind</span> 
+                        <input type="checkbox" class="checkbox checkbox-sm checkbox-success" id="op_row" onchange="updateOps()" />
+                    </label>
+                    <label class="label cursor-pointer bg-base-200 rounded px-2 col-span-2">
+                        <span class="label-text font-bold">Forbidden Chakra</span> 
+                        <input type="checkbox" class="checkbox checkbox-sm checkbox-accent" id="op_fc" onchange="updateOps()" />
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-lg border border-base-content/5 md:col-span-2 lg:col-span-1">
+            <div class="card-body p-3">
+                <h2 class="card-title text-sm text-secondary uppercase tracking-wider mb-2">
+                    <i class="fa-solid fa-hand-pointer"></i> Forzar Acción
+                </h2>
+                <div class="grid grid-cols-2 gap-2">
+                    <button class="btn btn-neutral h-12" onclick="forceAction('SixSidedStar')">
+                        <i class="fa-solid fa-star text-warning"></i> 6-Side Star
+                    </button>
+                    <button class="btn btn-neutral h-12" onclick="forceAction('Sprint')">
+                        <i class="fa-solid fa-person-running text-success"></i> Sprint
+                    </button>
+                    <button class="btn btn-neutral h-12" onclick="forceAction('Feint')">Feint</button>
+                    <button class="btn btn-neutral h-12" onclick="forceAction('Mantra')">Mantra</button>
+                    <button class="btn btn-neutral h-12" onclick="forceAction('RiddleOfEarth')">RoEarth</button>
+                    <button class="btn btn-neutral h-12" onclick="forceAction('Bloodbath')">Blood</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card bg-base-100 shadow-lg border border-base-content/5">
+            <div class="card-body p-3 flex flex-row justify-between items-center">
+                <div class="form-control">
+                    <label class="label cursor-pointer gap-2">
+                        <span class="label-text font-bold">AoE</span>
+                        <input type="checkbox" class="toggle toggle-info" id="op_aoe" onchange="updateOps()" />
+                    </label>
+                </div>
+                <div class="form-control">
+                    <label class="label cursor-pointer gap-2">
+                        <span class="label-text font-bold">TrueNorth</span>
+                        <input type="checkbox" class="toggle toggle-info" id="op_truenorth" onchange="updateOps()" />
+                    </label>
+                </div>
+                <button class="btn btn-square btn-sm btn-ghost" onclick="openConfigModal()">
+                    <i class="fa-solid fa-gear text-lg"></i>
+                </button>
+            </div>
+        </div>
+
+    </div>
+
+    <dialog id="config_modal" class="modal modal-bottom sm:modal-middle">
+        <div class="modal-box bg-base-200">
+            <h3 class="font-bold text-lg mb-4">Configuración Avanzada</h3>
+            
+            <div class="collapse collapse-arrow bg-base-100 border border-base-content/10 mb-2">
+                <input type="radio" name="config-accordion" checked="checked" /> 
+                <div class="collapse-title text-sm font-bold text-warning">SUPERVIVENCIA</div>
+                <div class="collapse-content pt-2 space-y-2">
+                    <div class="form-control">
+                        <label class="label cursor-pointer justify-start gap-3">
+                            <input type="checkbox" class="toggle toggle-warning toggle-sm" id="surv_enable" />
+                            <span class="label-text font-bold">Auto-Curación</span>
+                        </label>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <input type="number" id="surv_sw" class="input input-sm w-full text-center" placeholder="SW %" />
+                        <input type="number" id="surv_bb" class="input input-sm w-full text-center" placeholder="BB %" />
+                    </div>
+                </div>
+            </div>
+
+            <div class="collapse collapse-arrow bg-base-100 border border-base-content/10">
+                <input type="radio" name="config-accordion" /> 
+                <div class="collapse-title text-sm font-bold text-info">TECLAS</div>
+                <div class="collapse-content pt-2">
+                    <div id="skill-list" class="config-scroll space-y-1 pr-2"></div>
+                </div>
+            </div>
+
+            <div class="modal-action">
+                <button class="btn btn-primary w-full" onclick="saveAllSettings()">GUARDAR</button>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <script>
+        // --- CONFIGURACIÓN DE RED ---
+        // SI USAS EL CELULAR, CAMBIA '127.0.0.1' POR LA IP LOCAL DE TU PC (ej. 192.168.1.X)
+        const ws = new WebSocket("ws://127.0.0.1:5055");
+
+        const KEYS = { 0x31:"1",0x32:"2",0x33:"3",0x34:"4",0x35:"5",0x36:"6",0x51:"Q",0x45:"E",0x52:"R",0x46:"F",0x47:"G",0xDC:"º/|",0xE2:"<" };
+        const BARS = { 0:"Base",1:"Ctrl",2:"Shift",3:"Alt",4:"Ctrl+Alt" };
+        const ACTIONS = { 53: "Bootshine", 54: "True Strike", 56: "Snap Punch", 61: "Twin Snakes", 62: "Arm of Destroyer", 66: "Demolish", 70: "Rockbreaker", 74: "Dragon Kick", 16473: "4-Point Fury", 25767: "Shadow Dest.", 36945: "Leaping Opo", 36946: "Rising Raptor", 36947: "Pouncing Coeurl", 25764: "Blitz", 25765: "Elixir Burst", 25768: "Phoenix", 25763: "Phantom Rush", 1181: "Riddle of Fire", 1185: "Brotherhood", 110: "Perfect Balance", 3843: "Fire's Reply", 3842: "Wind's Reply" };
+
+        let currentConfig = {};
+
+        ws.onopen = () => {
+            document.getElementById("status-badge").innerText = "ONLINE";
+            document.getElementById("status-badge").className = "badge badge-success font-bold";
+            sendJson("get_config");
+        };
+
+        ws.onmessage = (e) => {
+            const msg = JSON.parse(e.data);
+
+            if (msg.type === "status") {
+                const d = msg.data;
+                document.getElementById("target").innerText = d.target || "--";
+                
+                const hpPct = d.target_max_hp > 0 ? Math.round((d.target_hp / d.target_max_hp) * 100) : 0;
+                document.getElementById("hp").innerText = hpPct + "%";
+
+                // Next Action
+                const nextId = d.next_action;
+                let actionName = ACTIONS[nextId] || (nextId ? "ID " + nextId : "...");
+                const el = document.getElementById("combo");
+                
+                el.innerText = (nextId) ? `[${nextId}] ${actionName}` : "...";
+                if(nextId) el.classList.add("text-warning");
+                else el.classList.remove("text-warning");
+
+                document.body.style.borderColor = (d.status === "COMBATIENDO") ? "#22c55e" : "transparent";
+                if(d.status === "COMBATIENDO") document.body.classList.add("border-x-4", "border-green-500");
+                else document.body.classList.remove("border-x-4", "border-green-500");
+            }
+
+            if (msg.type === "config_data") {
+                const cfg = msg.data;
+                currentConfig = cfg;
+                
+                // Cargar Operaciones (Toggles)
+                if (cfg.Operation) {
+                    const op = cfg.Operation;
+                    setCheck("op_aoe", op.AoE_Enabled);
+                    setCheck("op_truenorth", op.TrueNorth_Auto);
+                    
+                    // Nuevos Toggles
+                    setCheck("op_savecd", op.SaveCD);
+                    setCheck("op_pb", op.UsePB);
+                    setCheck("op_rof", op.UseRoF);
+                    setCheck("op_bh", op.UseBrotherhood);
+                    setCheck("op_row", op.UseRoW);
+                    setCheck("op_fc", op.UseForbiddenChakra);
+                }
+
+                if (cfg.Survival) {
+                    setCheck("surv_enable", cfg.Survival.Enabled);
+                    document.getElementById("surv_sw").value = cfg.Survival.MinHp_SecondWind;
+                    document.getElementById("surv_bb").value = cfg.Survival.MinHp_Bloodbath;
+                }
+
+                if (cfg.Monk) renderKeyList(cfg.Monk);
+            }
+        };
+
+        function setCheck(id, val) {
+            const el = document.getElementById(id);
+            if(el) el.checked = val;
+        }
+
+        function sendJson(cmd, data = null) {
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ cmd: cmd, data: data }));
+        }
+
+        function forceAction(actionName) {
+            if(navigator.vibrate) navigator.vibrate(50); 
+            sendJson("force_action", actionName);
+        }
+
+        // Enviar cambios de toggles al instante
+        function updateOps() {
+            const data = {
+                AoE_Enabled: document.getElementById("op_aoe").checked,
+                TrueNorth_Auto: document.getElementById("op_truenorth").checked,
+                SixSidedStar_Use: false, // Deprecated toggle
+                
+                SaveCD: document.getElementById("op_savecd").checked,
+                UsePB: document.getElementById("op_pb").checked,
+                UseRoF: document.getElementById("op_rof").checked,
+                UseBrotherhood: document.getElementById("op_bh").checked,
+                UseRoW: document.getElementById("op_row").checked,
+                UseForbiddenChakra: document.getElementById("op_fc").checked
+            };
+            sendJson("save_operation", data);
+        }
+
+        function openConfigModal() {
+            sendJson("get_config");
+            document.getElementById('config_modal').showModal();
+        }
+
+        function saveAllSettings() {
+            // Guardar Survival
+            const survData = {
+                Enabled: document.getElementById("surv_enable").checked,
+                MinHp_SecondWind: parseInt(document.getElementById("surv_sw").value) || 0,
+                MinHp_Bloodbath: parseInt(document.getElementById("surv_bb").value) || 0
+            };
+            sendJson("save_survival", survData);
+            
+            // Guardar Teclas
+            if (currentConfig.Monk) {
+                for (const skill of Object.keys(currentConfig.Monk)) {
+                    const barEl = document.getElementById(`bar_${skill}`);
+                    const keyEl = document.getElementById(`key_${skill}`);
+                    if (barEl && keyEl) {
+                        currentConfig.Monk[skill].Bar = parseInt(barEl.value);
+                        currentConfig.Monk[skill].Key = parseInt(keyEl.value);
+                    }
+                }
+                sendJson("save_config", currentConfig.Monk);
+            }
+            document.getElementById('config_modal').close();
+        }
+
+        // Render Key list (sin cambios)
+        function renderKeyList(monkConfig) {
+            const container = document.getElementById("skill-list");
+            container.innerHTML = "";
+            for (const [skill, bind] of Object.entries(monkConfig)) {
+                const row = document.createElement("div");
+                row.className = "flex justify-between items-center bg-base-100 p-2 rounded text-xs border border-base-content/5";
+                row.innerHTML = `<span class="font-bold text-accent uppercase tracking-wider w-1/3 truncate">${skill}</span>
+                <div class="join w-2/3 justify-end">
+                    <select id="bar_${skill}" class="select select-xs select-ghost join-item bg-base-200">${opts(BARS, bind.Bar)}</select>
+                    <select id="key_${skill}" class="select select-xs select-ghost join-item bg-base-200 font-mono">${opts(KEYS, bind.Key)}</select>
+                </div>`;
+                container.appendChild(row);
+            }
+        }
+        function opts(dict, current) {
+            return Object.entries(dict).map(([k,v]) => `<option value="${k}" ${k==current?'selected':''}>${v}</option>`).join('');
+        }
+    </script>
+</body>
+</html>
