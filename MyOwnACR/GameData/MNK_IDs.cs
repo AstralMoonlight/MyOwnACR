@@ -74,12 +74,12 @@ namespace MyOwnACR.GameData
         // =========================================================================
         // 5. ROLE ACTIONS (Comunes a todos los Melee)
         // =========================================================================
-        public const uint SecondWind = 7541;  // Autocura instantánea
-        public const uint LegSweep = 7540;  // Stun
-        public const uint Bloodbath = 7542;  // Robo de vida al pegar
-        public const uint Feint = 7549;  // Reducir daño físico del boss
-        public const uint ArmsLength = 7548;  // Anti-empuje
-        public const uint TrueNorth = 7546;  // Ignorar posicionales
+        //public const uint SecondWind = 7541;  // Autocura instantánea
+        //public const uint LegSweep = 7540;  // Stun
+        //public const uint Bloodbath = 7542;  // Robo de vida al pegar
+        //public const uint Feint = 7549;  // Reducir daño físico del boss
+        //public const uint ArmsLength = 7548;  // Anti-empuje
+        //public const uint TrueNorth = 7546;  // Ignorar posicionales
 
         // =========================================================================
         // STATUSES (BUFFS) - ushort
@@ -93,6 +93,6 @@ namespace MyOwnACR.GameData
         public const ushort Status_CoeurlForm = 109;
         public const ushort Status_FiresRumination = 3843; // Buff para usar Fire's Reply
         public const ushort Status_WindsRumination = 3842; // Buff para usar Wind's Reply
-        public const ushort Status_TrueNorth = 1250;
+        //public const ushort Status_TrueNorth = 1250;
     }
 }

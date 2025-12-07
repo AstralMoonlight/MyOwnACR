@@ -1,7 +1,7 @@
 using System;
 using System.Linq;
 using System.Numerics;
-using Dalamud.Game.ClientState.Objects.SubKinds;
+using Dalamud.Game.ClientState.Objects.SubKinds; // <--- SOLUCIONA ERROR IPlayerCharacter
 using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.JobGauge.Types;
@@ -23,10 +23,7 @@ namespace MyOwnACR.Logic
         private const int MinActionDelayMs = 250;
         private static DateTime lastAnyActionTime = DateTime.MinValue;
         private static bool ogcdUsedSinceLastGcd = false;
-
-        // Timers de Protección
         private static DateTime LastPBTime = DateTime.MinValue;
-        private static DateTime LastTNTime = DateTime.MinValue; // <--- NUEVO TIMER PARA TN
 
         public static uint LastProposedAction = 0;
         private static string QueuedManualAction = "";
@@ -54,8 +51,8 @@ namespace MyOwnACR.Logic
             GetActionCharges(am, MNK_IDs.PerfectBalance, player.Level, out int curPB, out int maxPB);
 
             chat.Print($"[ACR] Lv{player.Level} | Nadi: {gauge.Nadi} | PB: {curPB}/{maxPB}");
+            chat.Print($"[ACR] Intención: {LastProposedAction}");
             chat.Print($"[ACR] Posición: {CombatHelpers.GetPosition(player)}");
-            chat.Print($"[ACR] TN Reciente: {(DateTime.Now - LastTNTime).TotalSeconds:F1}s ago");
         }
 
         // =========================================================================
@@ -170,43 +167,26 @@ namespace MyOwnACR.Logic
             if (isActionReady)
             {
                 // ==========================================================
-                // LÓGICA AUTO TRUE NORTH (CON PROTECCIÓN ANTI-DOBLE)
+                // LÓGICA AUTO TRUE NORTH (USANDO MELEE COMMON)
                 // ==========================================================
-                if (operation.TrueNorth_Auto)
-                {
-                    // 1. Ver si ya tengo el buff
-                    bool hasBuff = HasStatus(player, MNK_IDs.Status_TrueNorth);
+                uint id = gcdCandidate.Value.actionId;
+                Position neededPos = Position.Unknown;
 
-                    // 2. Ver si lo usé hace menos de 2.5 segundos (Protección)
-                    bool justUsed = (now - LastTNTime).TotalSeconds < 2.5;
+                if (id == MNK_IDs.Demolish) neededPos = Position.Rear;
+                else if (id == MNK_IDs.SnapPunch || id == MNK_IDs.PouncingCoeurl) neededPos = Position.Flank;
 
-                    if (!hasBuff && !justUsed)
-                    {
-                        var myPos = CombatHelpers.GetPosition(player);
-                        uint id = gcdCandidate.Value.actionId;
-                        bool needsTN = false;
+                // Delegamos a la clase común para no repetir código ni IDs
+                bool usedTN = MeleeCommon.HandleTrueNorth(
+                    am,
+                    player,
+                    operation,
+                    config.TrueNorth,
+                    neededPos,
+                    ref LastProposedAction,
+                    ref lastAnyActionTime
+                );
 
-                        // Demolish -> REAR
-                        if (id == MNK_IDs.Demolish && myPos != Position.Rear) needsTN = true;
-
-                        // Snap Punch / Pouncing Coeurl -> FLANK
-                        if ((id == MNK_IDs.SnapPunch || id == MNK_IDs.PouncingCoeurl) && myPos != Position.Flank) needsTN = true;
-
-                        // Cargas y Estado
-                        bool hasCharges = am->GetCurrentCharges(MNK_IDs.TrueNorth) > 0;
-                        bool canPress = am->GetActionStatus(ActionType.Action, MNK_IDs.TrueNorth) == 0;
-
-                        if (needsTN && hasCharges && canPress)
-                        {
-                            LastProposedAction = MNK_IDs.TrueNorth;
-                            PressBind(config.TrueNorth);
-
-                            LastTNTime = now;        // <--- MARCAMOS EL TIEMPO
-                            lastAnyActionTime = now; // Bloqueo global breve
-                            return;
-                        }
-                    }
-                }
+                if (usedTN) return; // Si usamos TN, esperamos al siguiente ciclo
                 // ==========================================================
 
                 PressBind(gcdCandidate.Value.bind);
@@ -226,10 +206,6 @@ namespace MyOwnACR.Logic
                 }
             }
         }
-
-        // ... [RESTO DEL CÓDIGO (SELECTORES, OGCD LOGIC, HELPERS) IGUAL] ...
-        // (Copiar y pegar las funciones GetNextGcdCandidate, TryUseOgcd, etc. de la versión anterior)
-        // Asegúrate de que TryUseOgcd tenga la lógica de (lastWasOpo) que te di antes.
 
         // =========================================================================
         // SELECTOR DE GCD
