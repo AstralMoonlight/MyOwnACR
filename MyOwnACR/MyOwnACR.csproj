@@ -1,19 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Project Sdk="Dalamud.NET.Sdk/13.1.0">
-  <PropertyGroup>
-    <Authors>Astral</Authors>
-    <Version>1.0.1.0</Version>
-    <Description>MyOwnACR Rotations</Description>
-    <Copyright>Copyright (c) 2025 Astral</Copyright>
-    <PackageProjectUrl>https://github.com/AstralMoonlight/MyOwnACR</PackageProjectUrl>
-    <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
-    <IsPackable>false</IsPackable>
+    <PropertyGroup>
+        <Authors>Astral</Authors>
+        <Version>1.0.1.0</Version>
+        <Description>MyOwnACR Rotations</Description>
+        <Copyright>Copyright (c) 2025 Astral</Copyright>
+        <PackageProjectUrl>https://github.com/AstralMoonlight/MyOwnACR</PackageProjectUrl>
+        <PackageLicenseExpression>AGPL-3.0-or-later</PackageLicenseExpression>
+        <IsPackable>false</IsPackable>
 
-    <AssemblyName>MyOwnACR</AssemblyName>
-    <RootNamespace>MyOwnACR</RootNamespace>
-  </PropertyGroup>
+        <AssemblyName>MyOwnACR</AssemblyName>
+        <RootNamespace>MyOwnACR</RootNamespace>
 
-  <ItemGroup>
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-  </ItemGroup>
+        <!-- FIX CA1416: Especificamos explícitamente que esto corre en Windows -->
+        <!-- FIX CS1705: Actualizado a net9.0-windows para coincidir con las dependencias de Dalamud/FFXIVClientStructs -->
+        <TargetFramework>net9.0-windows</TargetFramework>
+        <Platforms>x64</Platforms>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+    </ItemGroup>
 </Project>

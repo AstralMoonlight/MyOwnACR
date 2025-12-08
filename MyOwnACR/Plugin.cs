@@ -21,6 +21,7 @@ using Newtonsoft.Json.Linq;
 using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Game.ClientState.JobGauge.Types;
 using Lumina.Excel.Sheets;
+using MyOwnACR.GameData; // NECESARIO para inicializar MNK_ActionData
 
 namespace MyOwnACR
 {
@@ -86,14 +87,14 @@ namespace MyOwnACR
             Config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
             Config.Initialize(PluginInterface);
 
+            // INICIALIZACIÓN CENTRALIZADA DE DATOS DE JUEGO (GameData)
+            // Carga la base de datos de habilidades GCD/oGCD
+            MNK_ActionData.Initialize();
+
             // Registro de comandos de chat
             CommandManager.AddHandler("/acr", new CommandInfo(OnCommand) { HelpMessage = "Activar/Pausar Bot" });
             CommandManager.AddHandler("/acrstatus", new CommandInfo(OnCommandStatus) { HelpMessage = "Ver Buffs" });
             CommandManager.AddHandler("/acrdebug", new CommandInfo(OnCommandDebug) { HelpMessage = "Debug Logic" });
-
-
-
-
 
             // Inicio del servidor Web en un hilo separado
             cts = new CancellationTokenSource();
