@@ -1,137 +1,195 @@
+// Archivo: MyOwnACR/InputSender.cs
+// Descripción: Gestor de inputs con cola dedicada.
+// AJUSTES: Tiempos personalizados del usuario + Filtro Anti-Duplicación (Debounce).
+
 using System;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace MyOwnACR
 {
+    public struct InputTask
+    {
+        public byte Key;
+        public HotbarType BarType;
+        public bool IsGCD;
+        public string Source;
+
+        public InputTask(byte key, HotbarType barType, bool isGCD, string source = "")
+        {
+            Key = key;
+            BarType = barType;
+            IsGCD = isGCD;
+            Source = source;
+        }
+    }
+
     public static class InputSender
     {
-        [DllImport("user32.dll")]
-        private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);
-
+        [DllImport("user32.dll")] private static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, uint dwExtraInfo);
         private const uint KEYEVENTF_KEYUP = 0x0002;
-
         private const byte VK_SHIFT = 0x10;
         private const byte VK_CONTROL = 0x11;
-        private const byte VK_MENU = 0x12; // Alt
+        private const byte VK_MENU = 0x12;
 
-        // Control de ritmo / random
-        private static readonly object SendLock = new();
-        private static DateTime LastSent = DateTime.MinValue;
-        private static readonly Random Rng = new();
+        // =====================================================================================
+        // 1. CONFIGURACIÓN DE TIEMPOS (TUS VALORES PERSONALIZADOS)
+        // =====================================================================================
 
-        // --- CONFIGURACIÓN DE REPETICIÓN (TUS VALORES) ---
-        private const int MinSpamClicks = 2;  // Mínimo de clicks por acción
-        private const int MaxSpamClicks = 3;  // Máximo de clicks por acción
+        // --- RITMO RELAJADO (GCD -> GCD) ---
+        // Se aplica solo cuando vienes de un GCD y vas a otro GCD (ej. Combo normal).
+        private const int RelaxedDelayMs = 150;
+        private const int RelaxedJitterMs = 30;
 
-        // Tiempo entre clicks del mismo spam (rápido, como tecleo frenético)
-        private const int SpamIntervalMs = 150;
-        private const int SpamIntervalJitterMs = 110;
+        // --- MODO ANSIOSO (Weaving / Queueing) ---
+        // Se aplica en cualquier otro caso (GCD->oGCD, oGCD->oGCD).
+        // NOTA: Si MNK_Logic usa Queueing (0.5s antes), este delay se suma.
+        // Con 150ms, el worker esperará un poco antes de empezar el spam.
+        private const int AnxiousDelayMs = 70;
+        private const int AnxiousJitterMs = 15;
 
-        // Parámetros base (se les aplica jitter)
-        private const int BaseMinDelayBetweenKeysMs = 300; // intervalo medio entre habilidades distintas
-        private const int MinDelayJitterMs = 70;
-        private const int BaseHoldMs = 75;  // tiempo medio con la tecla abajo
-        private const int HoldJitterMs = 45;
+        // --- SPAM (MACHACAR BOTÓN) ---
+        private const int MinSpamCount = 2;
+        private const int MaxSpamCount = 3;
 
-        // Método maestro para presionar teclas según tu sistema de barras
-        public static void Send(byte key, HotbarType barType)
+        // Intervalo entre pulsaciones (Spam lento para evitar saturación)
+        private const int SpamIntervalMs = 80;
+        private const int SpamIntervalJitterMs = 15;
+
+        // --- FÍSICA ---
+        private const int KeyHoldMs = 80;
+        private const int KeyHoldJitterMs = 15;
+
+        // =====================================================================================
+
+        private static BlockingCollection<InputTask> _inputQueue = new BlockingCollection<InputTask>();
+
+        // Inicialización segura con null!
+        private static CancellationTokenSource _cts = null!;
+        private static Task _workerTask = null!;
+        private static bool _initialized = false;
+
+        // Estado interno
+        private static DateTime _lastSentTime = DateTime.MinValue;
+        private static bool _lastWasGCD = true;
+
+        // Variables para Anti-Duplicación (Debounce)
+        private static DateTime _lastInputAddedTime = DateTime.MinValue;
+        private static byte _lastInputKey = 0;
+
+        private static readonly Random _rng = new Random();
+
+        public static void Initialize()
         {
-            // No bloquear el hilo de Dalamud
-            ThreadPool.QueueUserWorkItem(_ => SendInternal(key, barType));
+            if (_initialized) return;
+            _cts = new CancellationTokenSource();
+            _inputQueue = new BlockingCollection<InputTask>();
+            _workerTask = Task.Factory.StartNew(WorkerLoop, _cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            _initialized = true;
+            Plugin.Instance?.SendLog("[InputSender] Worker iniciado (Cola dedicada).");
         }
 
-        private static void SendInternal(byte key, HotbarType barType)
+        public static void Dispose()
         {
-            lock (SendLock)
+            if (!_initialized) return;
+            _cts.Cancel();
+            _inputQueue.CompleteAdding();
+            try { _workerTask.Wait(1000); } catch { }
+            _inputQueue.Dispose();
+            _cts.Dispose();
+            _initialized = false;
+        }
+
+        public static void Send(byte key, HotbarType barType, bool isGCD)
+        {
+            if (!_initialized) Initialize();
+
+            // --- FILTRO ANTI-DUPLICACIÓN (DEBOUNCE) ---
+            // Si intentamos enviar la MISMA tecla en menos de 200ms, asumimos que es 
+            // la lógica ejecutándose dos veces antes de bloquearse. Ignoramos la segunda.
+            var now = DateTime.UtcNow;
+            if (key == _lastInputKey && (now - _lastInputAddedTime).TotalMilliseconds < 200)
             {
-                var now = DateTime.UtcNow;
-
-                // --- LÓGICA DE "GOLPE ANSIOSO" (ANXIOUS PRESS) ---
-                // Probabilidad del 40% de ignorar el delay base de 300ms y pulsar casi de inmediato.
-                // Esto simula el intentar meter la habilidad en la cola (queueing) antes de que esté lista.
-                bool anxiousPress = Rng.NextDouble() < 0.40;
-                    
-                int minDelay;
-
-                if (anxiousPress)
-                {
-                    // Delay muy corto (10-40ms) para simular impaciencia/queueing
-                    minDelay = Rng.Next(10, 40);
-                }
-                else
-                {
-                    // Ritmo "humano" normal usando tu configuración base (400ms)
-                    minDelay = BaseMinDelayBetweenKeysMs + Rng.Next(-MinDelayJitterMs, MinDelayJitterMs + 1);
-                    if (minDelay < 60) minDelay = 60;
-                    if (minDelay > 1000) minDelay = 1000; // Cap de seguridad
-                }
-
-                var diff = (now - LastSent).TotalMilliseconds;
-                if (diff < minDelay)
-                    Thread.Sleep(minDelay - (int)diff);
-
-                LastSent = DateTime.UtcNow;
-
-                // 2) Pulsar modificadores
-                PressModifiers(barType);
-
-                // 3) Determinar cuántas veces vamos a "spamear" la tecla (2 a 4)
-                int clicks = Rng.Next(MinSpamClicks, MaxSpamClicks + 1);
-
-                // 4) Bucle de pulsaciones
-                for (int i = 0; i < clicks; i++)
-                {
-                    // Duración aleatoria de ESTA pulsación específica
-                    int holdMs = BaseHoldMs + Rng.Next(-HoldJitterMs, HoldJitterMs + 1);
-                    if (holdMs < 40) holdMs = 40;
-                    if (holdMs > 150) holdMs = 150;
-
-                    keybd_event(key, 0, 0, 0);                  // key down
-                    Thread.Sleep(holdMs);                       // mantener
-                    keybd_event(key, 0, KEYEVENTF_KEYUP, 0);    // key up
-
-                    // Si no es el último click, esperamos según tu intervalo configurado
-                    if (i < clicks - 1)
-                    {
-                        // Si fue un "anxious press", reducimos un poco el intervalo del spam también para que parezca más frenético
-                        int currentInterval = anxiousPress ? (SpamIntervalMs - 40) : SpamIntervalMs;
-
-                        int gap = currentInterval + Rng.Next(-SpamIntervalJitterMs, SpamIntervalJitterMs + 1);
-                        if (gap < 30) gap = 30; // Mínimo físico razonable
-
-                        Thread.Sleep(gap);
-                    }
-                }
-
-                // 5) Soltar modificadores
-                ReleaseModifiers(barType);
-
-                // 6) Pequeña pausa aleatoria “de salida”
-                // Si fue anxious, salimos más rápido
-                int tailPause = Rng.Next(0, anxiousPress ? 20 : 50);
-                if (tailPause > 0)
-                    Thread.Sleep(tailPause);
+                return; // Ignorar duplicado
             }
+
+            if (!_inputQueue.IsAddingCompleted)
+            {
+                _inputQueue.Add(new InputTask(key, barType, isGCD));
+                _lastInputAddedTime = now;
+                _lastInputKey = key;
+            }
+        }
+
+        private static void WorkerLoop()
+        {
+            try
+            {
+                foreach (var task in _inputQueue.GetConsumingEnumerable(_cts.Token))
+                {
+                    ProcessTask(task);
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { Plugin.Instance?.SendLog($"[InputSender Error] {ex.Message}"); }
+        }
+
+        private static void ProcessTask(InputTask task)
+        {
+            // --- 1. LÓGICA DE RITMO CONTEXTUAL ---
+            // Solo usamos modo relajado si es GCD puro -> GCD puro.
+            // Si hay weaving o pre-pull, usamos modo ansioso.
+            bool isRelaxedTransition = _lastWasGCD && task.IsGCD;
+            _lastWasGCD = task.IsGCD;
+
+            int delayBase = isRelaxedTransition ? RelaxedDelayMs : AnxiousDelayMs;
+            int delayJitter = isRelaxedTransition ? RelaxedJitterMs : AnxiousJitterMs;
+
+            int calculatedDelay = delayBase + _rng.Next(-delayJitter, delayJitter + 1);
+            if (calculatedDelay < 5) calculatedDelay = 5;
+
+            var elapsed = (DateTime.UtcNow - _lastSentTime).TotalMilliseconds;
+            if (elapsed < calculatedDelay)
+            {
+                Thread.Sleep(calculatedDelay - (int)elapsed);
+            }
+
+            _lastSentTime = DateTime.UtcNow;
+
+            // --- 2. EJECUCIÓN FÍSICA ---
+            PressModifiers(task.BarType);
+
+            int clicks = _rng.Next(MinSpamCount, MaxSpamCount + 1);
+
+            for (int i = 0; i < clicks; i++)
+            {
+                if (_cts.Token.IsCancellationRequested) break;
+
+                int hold = KeyHoldMs + _rng.Next(-KeyHoldJitterMs, KeyHoldJitterMs + 1);
+                keybd_event(task.Key, 0, 0, 0);
+                Thread.Sleep(hold);
+                keybd_event(task.Key, 0, KEYEVENTF_KEYUP, 0);
+
+                if (i < clicks - 1)
+                {
+                    int gap = SpamIntervalMs + _rng.Next(-SpamIntervalJitterMs, SpamIntervalJitterMs + 1);
+                    Thread.Sleep(gap);
+                }
+            }
+
+            ReleaseModifiers(task.BarType);
         }
 
         private static void PressModifiers(HotbarType barType)
         {
             switch (barType)
             {
-                case HotbarType.Barra2_Ctrl:
-                    keybd_event(VK_CONTROL, 0, 0, 0);
-                    break;
-                case HotbarType.Barra3_Shift:
-                    keybd_event(VK_SHIFT, 0, 0, 0);
-                    break;
-                case HotbarType.Barra4_Alt:
-                    keybd_event(VK_MENU, 0, 0, 0);
-                    break;
-                case HotbarType.Barra5_CtrlAlt:
-                    keybd_event(VK_CONTROL, 0, 0, 0);
-                    keybd_event(VK_MENU, 0, 0, 0);
-                    break;
+                case HotbarType.Barra2_Ctrl: keybd_event(VK_CONTROL, 0, 0, 0); break;
+                case HotbarType.Barra3_Shift: keybd_event(VK_SHIFT, 0, 0, 0); break;
+                case HotbarType.Barra4_Alt: keybd_event(VK_MENU, 0, 0, 0); break;
+                case HotbarType.Barra5_CtrlAlt: keybd_event(VK_CONTROL, 0, 0, 0); keybd_event(VK_MENU, 0, 0, 0); break;
             }
         }
 
@@ -139,19 +197,10 @@ namespace MyOwnACR
         {
             switch (barType)
             {
-                case HotbarType.Barra2_Ctrl:
-                    keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
-                    break;
-                case HotbarType.Barra3_Shift:
-                    keybd_event(VK_SHIFT, 0, KEYEVENTF_KEYUP, 0);
-                    break;
-                case HotbarType.Barra4_Alt:
-                    keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);
-                    break;
-                case HotbarType.Barra5_CtrlAlt:
-                    keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);
-                    keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
-                    break;
+                case HotbarType.Barra2_Ctrl: keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0); break;
+                case HotbarType.Barra3_Shift: keybd_event(VK_SHIFT, 0, KEYEVENTF_KEYUP, 0); break;
+                case HotbarType.Barra4_Alt: keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0); break;
+                case HotbarType.Barra5_CtrlAlt: keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0); keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0); break;
             }
         }
     }

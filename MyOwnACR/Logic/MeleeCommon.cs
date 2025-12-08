@@ -1,29 +1,16 @@
 // Archivo: Logic/MeleeCommon.cs
 // Descripción: Lógica compartida para clases Melee (Posicionales, True North).
-// ESTADO: CORREGIDO (Agregado using SubKinds y eliminada definición duplicada de Position).
+// ESTADO: CORREGIDO (Añadido parámetro isGCD=false para True North).
 
 using System;
 using Dalamud.Game.ClientState.Objects.Types;
-using Dalamud.Game.ClientState.Objects.SubKinds; // FIX: Necesario para IPlayerCharacter
+using Dalamud.Game.ClientState.Objects.SubKinds;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using MyOwnACR.GameData;
 using MyOwnACR;
 
 namespace MyOwnACR.Logic
 {
-    // FIX: Eliminada la definición de 'enum Position' porque el error CS0101 indica
-    // que ya está definida en otro archivo de este namespace (posiblemente CombatHelpers.cs).
-    // Si obtenemos error de "Position no encontrado", debemos restaurarla o ubicar dónde está definida.
-
-    /* public enum Position
-    {
-        Unknown,
-        Front,
-        Flank,
-        Rear
-    } 
-    */
-
     public static class MeleeCommon
     {
         // IDs
@@ -46,16 +33,21 @@ namespace MyOwnACR.Logic
             if (!op.TrueNorth_Auto) return false;
             if (neededPos == Position.Unknown || neededPos == Position.Front) return false;
 
+            // Si ya tenemos el buff, no hacer nada
             if (HasStatus(player, Status_TrueNorth)) return false;
 
+            // Verificamos si estamos en posición
             bool inPosition = IsInPosition(player, neededPos);
 
+            // Si NO estamos en posición y True North está listo
             if (!inPosition)
             {
-                // ActionType es ahora unívoco gracias a la limpieza anterior
+                // ActionType se refiere a FFXIVClientStructs (asumiendo que renombramos el nuestro a ActionCooldownType)
                 if (am->GetRecastTime(ActionType.Action, TrueNorth) == 0)
                 {
-                    InputSender.Send(trueNorthBind.Key, trueNorthBind.Bar);
+                    // FIX: Añadido 'false' porque True North es un oGCD
+                    InputSender.Send(trueNorthBind.Key, trueNorthBind.Bar, false);
+
                     lastAction = TrueNorth;
                     lastTime = DateTime.Now;
                     Plugin.Instance.SendLog("Auto True North: Activado (Fuera de posición)");

@@ -1,4 +1,6 @@
-// Archivo: Plugin.cs - Clase principal del Plugin. Gestiona el ciclo de vida, servidor Web, WebSockets y bucle de juego.
+// Archivo: MyOwnACR/Plugin.cs
+// Descripción: Clase principal del Plugin. Se ha añadido la gestión del ciclo de vida de InputSender.
+
 using Dalamud.Game.Command;
 using Dalamud.IoC;
 using Dalamud.Plugin;
@@ -87,9 +89,11 @@ namespace MyOwnACR
             Config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
             Config.Initialize(PluginInterface);
 
-            // INICIALIZACIÓN CENTRALIZADA DE DATOS DE JUEGO (GameData)
+            // --- INICIALIZACIÓN DE SISTEMAS ---
             // Carga la base de datos de habilidades GCD/oGCD
             MNK_ActionData.Initialize();
+            // Inicia el Worker de Inputs en hilo dedicado (Issue #4)
+            InputSender.Initialize();
 
             // Registro de comandos de chat
             CommandManager.AddHandler("/acr", new CommandInfo(OnCommand) { HelpMessage = "Activar/Pausar Bot" });
@@ -113,6 +117,9 @@ namespace MyOwnACR
             CommandManager.RemoveHandler("/acr");
             CommandManager.RemoveHandler("/acrstatus");
             CommandManager.RemoveHandler("/acrdebug");
+
+            // --- LIMPIEZA DE SISTEMAS ---
+            InputSender.Dispose(); // Detener worker de inputs limpiamente
 
             // Cancelación y limpieza del servidor web y sockets
             cts.Cancel();
@@ -461,7 +468,6 @@ namespace MyOwnACR
         }
     }
 }
-
 
 // ==================================================================================
 // RECORDATORIO: CÓMO ENVIAR LOGS A LA CONSOLA WEB

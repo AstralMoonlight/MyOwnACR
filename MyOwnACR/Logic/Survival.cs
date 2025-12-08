@@ -1,3 +1,8 @@
+// Archivo: Logic/Survival.cs
+// Descripción: Sistema de supervivencia automática (Auto-Heal).
+// ESTADO: CORREGIDO (Añadido parámetro isGCD=false para curas).
+
+using System;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using MyOwnACR;
@@ -18,22 +23,26 @@ namespace MyOwnACR.Logic
             // Calculamos el % de vida actual (0 a 100)
             float hpPercent = ((float)player.CurrentHp / player.MaxHp) * 100;
 
-            // 2. Lógica de Second Wind
+            // 2. Lógica de Second Wind (oGCD)
             if (hpPercent < settings.MinHp_SecondWind)
             {
                 if (CanUse(am, ID_SecondWind))
                 {
-                    InputSender.Send(keySecondWind.Key, keySecondWind.Bar);
+                    // FIX: false porque es oGCD
+                    InputSender.Send(keySecondWind.Key, keySecondWind.Bar, false);
+                    Plugin.Instance.SendLog($"Survival: Second Wind ({hpPercent:F0}%)");
                     return true; // Accion realizada
                 }
             }
 
-            // 3. Lógica de Bloodbath
+            // 3. Lógica de Bloodbath (oGCD)
             if (hpPercent < settings.MinHp_Bloodbath)
             {
                 if (CanUse(am, ID_Bloodbath))
                 {
-                    InputSender.Send(keyBloodbath.Key, keyBloodbath.Bar);
+                    // FIX: false porque es oGCD
+                    InputSender.Send(keyBloodbath.Key, keyBloodbath.Bar, false);
+                    Plugin.Instance.SendLog($"Survival: Bloodbath ({hpPercent:F0}%)");
                     return true;
                 }
             }
