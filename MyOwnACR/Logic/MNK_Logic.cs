@@ -44,7 +44,7 @@ namespace MyOwnACR.Logic
             var player = Plugin.ObjectTable.LocalPlayer;
             if (player == null) return;
             var gauge = Plugin.JobGauges.Get<MNKGauge>();
-            chat.Print($"[ACR] Nadi: {gauge.Nadi} | Weaves: {OgcdCount}/2 | LastWasGCD: {LastActionWasGCD}");
+            chat.Print($"[ACR] Nadi: {gauge.Nadi} | Weaves: {OgcdCount}/2 | LastWasGCD: {LastActionWasGCD} | Chakra: {gauge.Chakra}");
         }
 
         // =========================================================================
@@ -59,7 +59,7 @@ namespace MyOwnACR.Logic
         {
             if (am == null || player == null || config == null) return;
 
-            // 1. MANUAL
+            // 1. MANUAL (Prioridad Absoluta)
             if (!string.IsNullOrEmpty(QueuedManualAction))
             {
                 KeyBind? bindToPress = null;
@@ -71,12 +71,15 @@ namespace MyOwnACR.Logic
                     case "Mantra": bindToPress = config.Mantra; break;
                     case "RiddleOfEarth": bindToPress = config.RiddleOfEarth; break;
                     case "Bloodbath": bindToPress = config.Bloodbath; break;
+                    case "SecondWind": bindToPress = config.SecondWind; break;
+                    case "TrueNorth": bindToPress = config.TrueNorth; break;
                 }
                 if (bindToPress != null)
                 {
                     PressBind(bindToPress);
                     lastAnyActionTime = DateTime.Now;
                     LastActionWasGCD = false;
+                    // Plugin.Instance.SendLog($"Ejecutando Manual: {QueuedManualAction}");
                 }
                 QueuedManualAction = "";
                 return;
@@ -93,50 +96,85 @@ namespace MyOwnACR.Logic
             if ((now - lastAnyActionTime).TotalMilliseconds < requiredDelay) return;
 
             bool inCombat = Plugin.Condition?[ConditionFlag.InCombat] ?? false;
+            var target = player.TargetObject;
+            bool hasTarget = target != null && target.IsValid(); // Verificamos si existe el target
 
-            // 3. FUERA DE COMBATE
-            if (!inCombat)
+            // 3. LÓGICA DE DOWNTIME / FUERA DE RANGO
+            // Se ejecuta si: No estamos en combate O no tenemos target O el target está lejos
+            bool inRange = hasTarget && IsInMeleeRange(player);
+
+            if (!inCombat || !inRange)
             {
-                OgcdCount = 0;
-                bool hasAnyForm = HasStatus(player, MNK_IDs.Status_OpoOpoForm) || HasStatus(player, MNK_IDs.Status_RaptorForm) || HasStatus(player, MNK_IDs.Status_CoeurlForm) || HasStatus(player, MNK_IDs.Status_FormlessFist);
+                // Reseteamos contadores de weaves si salimos de rango/combate por un momento
+                if (!inCombat) OgcdCount = 0;
 
+                // 3.1. MEDITATION (Prioridad Máxima en Downtime)
+                // Se usa si nos faltan Chakras y no estamos casteando otra cosa
                 if (player.Level >= MNK_Levels.Meditation)
                 {
                     var gauge = Plugin.JobGauges.Get<MNKGauge>();
+                    // Si estamos en combate pero el boss se fue, queremos cargar chakras ASAP
                     if (gauge.Chakra < 5 && CanUseRecast(am, MNK_IDs.Meditation))
                     {
+                        // Pequeño check para no spammear si nos estamos moviendo mucho en combate
+                        // Pero en downtime de Ultimate, queremos spammear esto.
                         LastProposedAction = MNK_IDs.Meditation;
                         PressBind(config.Meditation);
                         lastAnyActionTime = now;
-                        LastActionWasGCD = true;
+                        LastActionWasGCD = true; // Meditation es un GCD
+                        // Plugin.Instance.SendLog("Downtime: Usando Meditation");
+                        return;
                     }
                 }
 
+                // 3.2. DAWNTRAIL REPLIES (Ataques a distancia si tenemos el buff)
+                // Solo si tenemos target válido para lanzarlos
+                if (hasTarget)
+                {
+                    if (HasStatus(player, MNK_IDs.Status_FiresRumination) && CanUseRecast(am, MNK_IDs.FiresReply))
+                    {
+                        LastProposedAction = MNK_IDs.FiresReply;
+                        PressBind(config.FiresReply);
+                        lastAnyActionTime = now;
+                        LastActionWasGCD = false;
+                        OgcdCount++;
+                        return;
+                    }
+                    if (HasStatus(player, MNK_IDs.Status_WindsRumination) && CanUseRecast(am, MNK_IDs.WindsReply))
+                    {
+                        LastProposedAction = MNK_IDs.WindsReply;
+                        PressBind(config.WindsReply);
+                        lastAnyActionTime = now;
+                        LastActionWasGCD = false;
+                        OgcdCount++;
+                        return;
+                    }
+                }
+
+                // 3.3. FORM SHIFT (Mantener combo activo en downtime largo)
+                // Si ya tenemos los 5 chakras, usamos Form Shift para mantenernos listos
+                bool hasAnyForm = HasStatus(player, MNK_IDs.Status_OpoOpoForm) || HasStatus(player, MNK_IDs.Status_RaptorForm) || HasStatus(player, MNK_IDs.Status_CoeurlForm) || HasStatus(player, MNK_IDs.Status_FormlessFist);
                 if (player.Level >= MNK_Levels.FormShift && !hasAnyForm && CanUseRecast(am, MNK_IDs.FormShift))
                 {
                     LastProposedAction = MNK_IDs.FormShift;
                     PressBind(config.FormShift);
                     lastAnyActionTime = now;
                     LastActionWasGCD = true;
+                    // Plugin.Instance.SendLog("Downtime: Usando Form Shift");
                     return;
                 }
 
-                
+                // Si no hay nada que hacer (full chakra, forms up, o sin target), salimos.
                 return;
             }
 
-            // 4. RANGO
+            // =================================================================
+            // SI LLEGAMOS AQUÍ, ESTAMOS EN RANGO Y CON TARGET VÁLIDO
+            // =================================================================
+
+            // 4. RANGO & ENEMIGOS (Ya calculado arriba en inRange)
             int enemyCount = CombatHelpers.CountAttackableEnemiesInRange(objectTable, player, 5f);
             bool useAoE = operation.AoE_Enabled && enemyCount >= AoE_Threshold;
-            bool inRange = IsInMeleeRange(player);
-
-            if (!inRange)
-            {
-                if (HasStatus(player, MNK_IDs.Status_FiresRumination) && CanUseRecast(am, MNK_IDs.FiresReply)) { LastProposedAction = MNK_IDs.FiresReply; PressBind(config.FiresReply); lastAnyActionTime = now; LastActionWasGCD = false; OgcdCount++; return; }
-                if (HasStatus(player, MNK_IDs.Status_WindsRumination) && CanUseRecast(am, MNK_IDs.WindsReply)) { LastProposedAction = MNK_IDs.WindsReply; PressBind(config.WindsReply); lastAnyActionTime = now; LastActionWasGCD = false; OgcdCount++; return; }
-                if (player.Level >= MNK_Levels.Meditation) { var gaugeRun = Plugin.JobGauges.Get<MNKGauge>(); if (gaugeRun.Chakra < 5 && CanUseRecast(am, MNK_IDs.Meditation)) { LastProposedAction = MNK_IDs.Meditation; PressBind(config.Meditation); lastAnyActionTime = now; LastActionWasGCD = true; return; } }
-                return;
-            }
 
             // 5. GCD LOGIC
             var gcdCandidate = GetNextGcdCandidate(am, config, player, useAoE);
@@ -155,7 +193,6 @@ namespace MyOwnACR.Logic
                 // Auto True North con Protección de 10s
                 if (operation.TrueNorth_Auto)
                 {
-                    // PROTECCIÓN: Si usamos TN hace menos de 10s, ignoramos esta lógica
                     if ((now - LastTrueNorthTime).TotalSeconds > 10)
                     {
                         if (!HasStatus(player, Melee_IDs.Status_TrueNorth))
@@ -169,7 +206,7 @@ namespace MyOwnACR.Logic
 
                             if (usedTN)
                             {
-                                LastTrueNorthTime = now; // <--- ACTUALIZAMOS TIMER
+                                LastTrueNorthTime = now;
                                 LastActionWasGCD = false;
                                 OgcdCount++;
                                 return;

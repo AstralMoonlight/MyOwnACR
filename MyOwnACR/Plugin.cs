@@ -221,7 +221,8 @@ namespace MyOwnACR
                 {
                     var player = ObjectTable.LocalPlayer;
                     // Validaciones básicas: Jugador existe, está vivo y tiene un objetivo
-                    if (player != null && player.CurrentHp > 0 && player.TargetObject != null)
+                    //if (player != null && player.CurrentHp > 0 && player.TargetObject != null)
+                    if (player != null && player.CurrentHp > 0)
                     {
                         ActionManager* am = ActionManager.Instance();
                         if (am != null)
