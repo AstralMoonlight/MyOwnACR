@@ -3,6 +3,15 @@ using MyOwnACR; // NECESARIO para encontrar 'Keys' y 'HotbarType'
 
 namespace MyOwnACR.JobConfigs
 {
+
+
+    // Definimos el Enum para la preferencia de slot
+    public enum WeaveSlotPreference
+    {
+        First,  // Usar lo antes posible (inmediato tras GCD)
+        Second  // Esperar un poco (tardío, cerca del siguiente GCD)
+    }
+    
     [Serializable]
     public class JobConfig_MNK
     {
@@ -48,7 +57,7 @@ namespace MyOwnACR.JobConfigs
         public KeyBind CelestialRevolution = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl);
 
         // Meditación (Cargar Chakra)
-        public KeyBind Meditation = new KeyBind(Keys.E, HotbarType.Barra1_Base);
+        public KeyBind Meditation = new KeyBind(Keys.R, HotbarType.Barra2_Ctrl);
 
         // ----------------------------------------------------------------------------------
         // 4. BUFFS OFENSIVOS (Barra 2 - Ctrl)
@@ -93,5 +102,24 @@ namespace MyOwnACR.JobConfigs
         // 9 Extras
         // ----------------------------------------------------------------------------------
         public KeyBind LimitBreak = new KeyBind(Keys.Num1, HotbarType.Barra5_CtrlAlt);
+
+        // =========================================================================
+        // AJUSTES DE WEAVING (NUEVO SEGÚN ISSUE #11)
+        // =========================================================================
+
+        // Permite intentar usar 2 habilidades oGCD entre GCDs si el tiempo lo permite.
+        public bool EnableDoubleWeave = true;
+
+        // Si solo vamos a usar 1 oGCD, ¿dónde preferimos ponerlo?
+        // First = Inmediatamente tras el GCD (Estilo actual).
+        // Second = Esperar un poco y usarlo más tarde (útil para RoF tardío).
+        public WeaveSlotPreference SingleWeaveSlotPreference = WeaveSlotPreference.First;
+
+        // Tiempos de seguridad (Milisegundos) para calcular ventanas
+        // Cuánto tarda la animación física en permitirnos hacer algo más.
+        public int AnimationLock_MS = 620;
+        public int WeaveDelay_oGCD1_MS = 640;
+        public int WeaveDelay_oGCD2_MS = 640;
     }
 }
+
