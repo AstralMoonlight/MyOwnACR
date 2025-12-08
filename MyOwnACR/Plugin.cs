@@ -1,6 +1,6 @@
 // Archivo: MyOwnACR/Plugin.cs
 // Descripción: Clase principal del Plugin.
-// AJUSTES: Corrección del error CS1929 en SendJsonAsync eliminando el uso incorrecto de GetSafeWaitHandle.
+// AJUSTES: Implementación de Thread Safety para WebSocket (SemaphoreSlim) y gestión robusta de hilos (Issue #2).
 
 using Dalamud.Game.Command;
 using Dalamud.IoC;
@@ -59,6 +59,9 @@ namespace MyOwnACR
         [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
         [PluginService] internal static IKeyState KeyState { get; private set; } = null!;
 
+        // NUEVO: Servicio de Logging de Dalamud
+        [PluginService] internal static IPluginLog Log { get; private set; } = null!;
+
         // Configuración persistente
         public Configuration Config { get; set; }
 
@@ -75,7 +78,6 @@ namespace MyOwnACR
         private volatile bool isHotkeyDown = false;
 
         private DateTime lastSentTime = DateTime.MinValue; // Control de tasa de refresco del Dashboard
-        // private bool isSending = false; // YA NO ES NECESARIO gracias al SemaphoreSlim
 
         // Importación de DLL para traer la ventana del juego al frente
         [DllImport("user32.dll")]
@@ -93,11 +95,15 @@ namespace MyOwnACR
             Config.Initialize(PluginInterface);
 
             // INICIALIZACIÓN CENTRALIZADA DE DATOS DE JUEGO (GameData)
-            // Carga la base de datos de habilidades GCD/oGCD
-            MNK_ActionData.Initialize();
-
-            // Inicia el Worker de Inputs en hilo dedicado (Issue #4)
-            InputSender.Initialize();
+            try
+            {
+                MNK_ActionData.Initialize();
+                InputSender.Initialize();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error crítico inicializando subsistemas");
+            }
 
             // Registro de comandos de chat
             CommandManager.AddHandler("/acr", new CommandInfo(OnCommand) { HelpMessage = "Activar/Pausar Bot" });
@@ -105,7 +111,6 @@ namespace MyOwnACR
             CommandManager.AddHandler("/acrdebug", new CommandInfo(OnCommandDebug) { HelpMessage = "Debug Logic" });
 
             // Inicio del servidor Web en un hilo separado
-            // Usamos Task.Run para no bloquear el hilo principal
             Task.Run(() => StartWebServer(cts.Token));
 
             // Suscripción al bucle de actualización del juego (cada frame)
@@ -117,10 +122,10 @@ namespace MyOwnACR
         /// </summary>
         public void Dispose()
         {
-            // 1. Detener lógica del juego primero para evitar nuevas llamadas
+            // 1. Detener lógica del juego primero
             Framework.Update -= OnGameUpdate;
 
-            // 2. Cancelar todas las tareas asíncronas (WebServer, Sockets)
+            // 2. Cancelar todas las tareas asíncronas
             cts.Cancel();
 
             // 3. Limpiar comandos
@@ -129,49 +134,39 @@ namespace MyOwnACR
             CommandManager.RemoveHandler("/acrdebug");
 
             // 4. Detener sistemas externos
-            InputSender.Dispose(); // Detener worker de inputs limpiamente
+            InputSender.Dispose();
 
-            // 5. Limpieza de Red (Concurrente segura)
+            // 5. Limpieza de Red
             try
             {
                 httpListener?.Stop();
                 httpListener?.Close();
             }
-            catch { }
+            catch (Exception ex) { Log.Warning($"Error cerrando HttpListener: {ex.Message}"); }
 
             try
             {
                 if (activeSocket != null)
                 {
-                    // Intentar cierre limpio si es posible, sino dispose forzado
                     if (activeSocket.State == WebSocketState.Open)
                     {
                         var closeTask = activeSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Plugin Disposing", CancellationToken.None);
-                        closeTask.Wait(1000); // Esperar máx 1s
+                        closeTask.Wait(1000);
                     }
                     activeSocket.Dispose();
                 }
             }
-            catch { }
+            catch (Exception ex) { Log.Warning($"Error cerrando WebSocket: {ex.Message}"); }
 
             _socketLock.Dispose();
             cts.Dispose();
         }
 
-        /// <summary>
-        /// Envía un mensaje de LOG a la consola de depuración web de forma segura.
-        /// Puede ser llamado desde cualquier parte con: Plugin.Instance.SendLog("mensaje");
-        /// </summary>
-        /// <param name="message">El texto a mostrar en la consola web.</param>
         public void SendLog(string message)
         {
-            // Reutiliza el método asíncrono existente de forma "Fire and Forget"
             _ = SendJsonAsync("log", message);
         }
 
-        /// <summary>
-        /// Trae la ventana del juego al primer plano (útil cuando se controla desde el navegador).
-        /// </summary>
         private void FocusGame()
         {
             try
@@ -180,29 +175,19 @@ namespace MyOwnACR
                 IntPtr hWnd = process.MainWindowHandle;
                 if (hWnd != IntPtr.Zero) SetForegroundWindow(hWnd);
             }
-            catch { }
+            catch (Exception ex) { Log.Error(ex, "Error enfocando ventana"); }
         }
 
-        /// <summary>
-        /// Handler para el comando /acr. Alterna el estado de ejecución.
-        /// </summary>
-        private void OnCommand(string command, string args)
-        {
-            ToggleRunning();
-        }
+        private void OnCommand(string command, string args) => ToggleRunning();
 
-        /// <summary>
-        /// Lógica interna para alternar entre Activado/Pausado.
-        /// </summary>
         private void ToggleRunning()
         {
             isRunning = !isRunning;
-            SendLog(isRunning ? "Bot ACTIVADO manualmente" : "Bot PAUSADO manualmente");
+            string status = isRunning ? "ACTIVADO" : "PAUSADO";
+            SendLog($"Bot {status} manualmente");
+            Log.Info($"Bot estado cambiado a: {status}");
         }
 
-        /// <summary>
-        /// Handler para /acrstatus. Muestra los buffs actuales en el chat (útil para debug de IDs).
-        /// </summary>
         private void OnCommandStatus(string command, string args)
         {
             var player = ObjectTable.LocalPlayer;
@@ -215,67 +200,53 @@ namespace MyOwnACR
             {
                 if (status.StatusId == 0) continue;
                 string name = "Desconocido";
-                // Intenta obtener el nombre real del buff desde la hoja de Excel del juego
                 if (statusSheet != null && statusSheet.TryGetRow(status.StatusId, out var row))
                     name = row.Name.ToString();
 
                 string msg = $"[{status.StatusId}] {name} ({status.RemainingTime:F1}s)";
                 Chat.Print(msg);
-                SendLog(msg); // También enviar a la consola web
+                SendLog(msg);
             }
         }
 
-        /// <summary>
-        /// Handler para /acrdebug. Invoca la función de debug de la lógica específica de MNK.
-        /// </summary>
         private void OnCommandDebug(string command, string args)
         {
             Logic.MNK_Logic.PrintDebugInfo(Chat);
             SendLog("Debug Info impresa en chat del juego.");
         }
 
-        /// <summary>
-        /// Bucle principal del juego. Se ejecuta en cada frame.
-        /// </summary>
         private unsafe void OnGameUpdate(IFramework framework)
         {
-            // Si estamos cerrando, no hacemos nada
             if (cts.IsCancellationRequested) return;
 
             try
             {
-                // 1. GESTIÓN DE HOTKEY FÍSICA
                 bool currentState = KeyState[Config.ToggleHotkey];
                 if (currentState && !isHotkeyDown)
                 {
                     isHotkeyDown = true;
-                    ToggleRunning(); // Activa/Desactiva solo en el flanco de subida (press)
+                    ToggleRunning();
                 }
                 else if (!currentState)
                 {
-                    isHotkeyDown = false; // Resetea el flag cuando se suelta la tecla
+                    isHotkeyDown = false;
                 }
 
-                // 2. EJECUCIÓN DE LÓGICA DE COMBATE
                 if (isRunning)
                 {
                     var player = ObjectTable.LocalPlayer;
-                    // Validaciones básicas: Jugador existe y está vivo
                     if (player != null && player.CurrentHp > 0)
                     {
                         ActionManager* am = ActionManager.Instance();
                         if (am != null)
                         {
                             var jobId = player.ClassJob.RowId;
-                            // ID 20 = Monk, ID 2 = Pugilist
                             if (jobId == 20 || jobId == 2)
                             {
-                                // Primero intenta ejecutar lógica de supervivencia (curas)
                                 bool survivalActionUsed = Logic.Survival.Execute(
                                     am, player, Config.Survival, Config.Monk.SecondWind, Config.Monk.Bloodbath
                                 );
 
-                                // Si no se usó una cura, intenta ejecutar la rotación de daño
                                 if (!survivalActionUsed)
                                 {
                                     Logic.MNK_Logic.Execute(am, player, Config.Monk, ObjectTable, Config.Operation);
@@ -285,14 +256,13 @@ namespace MyOwnACR
                     }
                 }
 
-                // 3. ACTUALIZACIÓN DEL DASHBOARD WEB (Limitado a 10Hz / 100ms)
+                // Dashboard Update
                 var now = DateTime.Now;
                 if ((now - lastSentTime).TotalMilliseconds >= 100)
                 {
                     lastSentTime = now;
                     var player = ObjectTable.LocalPlayer;
 
-                    // Valores por defecto para el JSON
                     string targetName = "--";
                     string playerName = "--";
                     uint jobId = 0;
@@ -304,7 +274,6 @@ namespace MyOwnACR
                         playerName = player.Name.TextValue;
                         jobId = player.ClassJob.RowId;
 
-                        // Información del Target
                         if (player.TargetObject != null)
                         {
                             targetName = player.TargetObject.Name.TextValue;
@@ -315,16 +284,13 @@ namespace MyOwnACR
                             }
                         }
 
-                        // Información del Combo actual
                         ActionManager* am = ActionManager.Instance();
                         if (am != null) combo = am->Combo.Action;
                     }
 
-                    // Determina estado textual para la UI
                     bool inCombat = Condition[ConditionFlag.InCombat];
                     var statusText = isRunning ? (inCombat ? "COMBATIENDO" : "ESPERANDO") : "PAUSADO";
 
-                    // Envía el paquete JSON al WebSocket de forma asíncrona y segura
                     _ = SendJsonAsync("status", new
                     {
                         is_running = isRunning,
@@ -334,65 +300,47 @@ namespace MyOwnACR
                         target = targetName,
                         job = jobId,
                         combo = combo,
-                        next_action = Logic.MNK_Logic.LastProposedAction, // Acción calculada por la lógica
-                        queued_action = Logic.MNK_Logic.GetQueuedAction(), // Acción manual en cola
+                        next_action = Logic.MNK_Logic.LastProposedAction,
+                        queued_action = Logic.MNK_Logic.GetQueuedAction(),
                         player_name = playerName,
                         target_hp = (int)tHp,
                         target_max_hp = (int)tMax
                     });
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                if ((DateTime.Now - lastSentTime).TotalSeconds > 1)
+                    Log.Error(ex, "Error en OnGameUpdate");
+            }
         }
 
-        /// <summary>
-        /// Envío Thread-Safe de mensajes por WebSocket.
-        /// Protegido por un SemaphoreSlim para evitar colisiones de hilos.
-        /// </summary>
         private async Task SendJsonAsync(string type, object content)
         {
-            // Validaciones rápidas antes de esperar el semáforo
             if (activeSocket == null || activeSocket.State != WebSocketState.Open || cts.IsCancellationRequested) return;
 
             bool lockTaken = false;
             try
             {
-                // Esperamos turno para usar el socket (máximo 1 hilo a la vez)
-                // Usamos el token de cancelación para no quedarnos bloqueados si el plugin se cierra
                 await _socketLock.WaitAsync(cts.Token);
                 lockTaken = true;
 
-                // Volvemos a validar dentro del lock (Double-check locking pattern)
                 if (activeSocket == null || activeSocket.State != WebSocketState.Open) return;
 
                 var wrapper = new WebMessage { type = type, data = content };
                 var json = JsonConvert.SerializeObject(wrapper);
                 var bytes = Encoding.UTF8.GetBytes(json);
 
-                // Envío final del buffer
                 await activeSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cts.Token);
             }
-            catch (OperationCanceledException)
-            {
-                // Normal al cerrar
-            }
-            catch (Exception)
-            {
-                // Error de socket (desconexión, etc), silenciamos para no crashear juego
-            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { Log.Warning($"Error WebSocket: {ex.Message}"); }
             finally
             {
-                // Solo liberamos si realmente tomamos el semáforo
-                if (lockTaken)
-                {
-                    try { _socketLock.Release(); } catch { }
-                }
+                if (lockTaken) try { _socketLock.Release(); } catch { }
             }
         }
 
-        /// <summary>
-        /// Inicializa el servidor HTTP local para servir el WebSocket.
-        /// </summary>
         private async Task StartWebServer(CancellationToken token)
         {
             while (!token.IsCancellationRequested)
@@ -401,43 +349,41 @@ namespace MyOwnACR
                 {
                     if (httpListener != null) try { httpListener.Close(); } catch { }
                     httpListener = new HttpListener();
-                    httpListener.Prefixes.Add("http://127.0.0.1:5055/"); // Puerto local 5055
+                    httpListener.Prefixes.Add("http://127.0.0.1:5055/");
                     httpListener.Start();
+                    Log.Info("Servidor Web iniciado en puerto 5055");
 
                     while (httpListener.IsListening && !token.IsCancellationRequested)
                     {
-                        // Espera conexión entrante
                         var context = await httpListener.GetContextAsync();
 
                         if (context.Request.IsWebSocketRequest)
                         {
                             var wsContext = await context.AcceptWebSocketAsync(null);
 
-                            // Reemplazo seguro del socket activo
                             await _socketLock.WaitAsync(token);
-                            try
-                            {
-                                activeSocket = wsContext.WebSocket;
-                            }
+                            try { activeSocket = wsContext.WebSocket; }
                             finally { _socketLock.Release(); }
 
-                            await ReceiveCommands(activeSocket, token); // Entra al bucle de escucha del socket
+                            Log.Info("Cliente WebSocket conectado");
+                            await ReceiveCommands(activeSocket, token);
                         }
                         else
                         {
-                            // Rechaza peticiones HTTP normales que no sean WS
                             context.Response.StatusCode = 400;
                             context.Response.Close();
                         }
                     }
                 }
-                catch { await Task.Delay(2000, token); } // Reintento en caso de error
+                catch (OperationCanceledException) { break; }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Error fatal en servidor web. Reiniciando...");
+                    await Task.Delay(2000, token);
+                }
             }
         }
 
-        /// <summary>
-        /// Escucha mensajes entrantes desde el cliente WebSocket (Dashboard).
-        /// </summary>
         private async Task ReceiveCommands(WebSocket s, CancellationToken token)
         {
             var buffer = new byte[4096];
@@ -449,16 +395,13 @@ namespace MyOwnACR
                     if (result.MessageType == WebSocketMessageType.Close) break;
 
                     string jsonMsg = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    // Procesamos el comando en un hilo del ThreadPool para no bloquear la recepción
                     _ = Task.Run(() => HandleJsonCommand(jsonMsg), token);
                 }
                 catch { break; }
             }
+            Log.Info("Cliente WebSocket desconectado");
         }
 
-        /// <summary>
-        /// Procesa los comandos JSON recibidos desde la Web (START, STOP, Configuración).
-        /// </summary>
         private void HandleJsonCommand(string json)
         {
             try
@@ -466,11 +409,10 @@ namespace MyOwnACR
                 JObject cmd = JObject.Parse(json);
                 string type = cmd["cmd"]?.ToString() ?? "";
 
-                // Comandos básicos de control
                 if (type == "START")
                 {
                     isRunning = true;
-                    FocusGame(); // Trae el juego al frente al iniciar
+                    FocusGame();
                     SendLog("Recibido comando START desde Web");
                 }
                 else if (type == "STOP")
@@ -520,10 +462,14 @@ namespace MyOwnACR
                 {
                     var newOp = cmd["data"]?.ToObject<OperationalSettings>();
                     if (newOp != null) { Config.Operation = newOp; Config.Save(); }
-                    FocusGame(); // Al cambiar opciones operativas, suele ser útil volver al juego
+                    FocusGame();
                 }
             }
-            catch { }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error procesando comando JSON");
+                SendLog($"Error procesando comando: {ex.Message}");
+            }
         }
     }
 }

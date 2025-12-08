@@ -1,6 +1,6 @@
 // Archivo: MyOwnACR/InputSender.cs
 // Descripción: Gestor de inputs con cola dedicada.
-// AJUSTES: Tiempos personalizados del usuario + Filtro Anti-Duplicación (Debounce).
+// AJUSTES: Issue #3 - Manejo explícito de excepciones y logging en Dispose/Worker.
 
 using System;
 using System.Collections.Concurrent;
@@ -35,31 +35,25 @@ namespace MyOwnACR
         private const byte VK_MENU = 0x12;
 
         // =====================================================================================
-        // 1. CONFIGURACIÓN DE TIEMPOS (TUS VALORES PERSONALIZADOS)
+        // 1. CONFIGURACIÓN DE TIEMPOS
         // =====================================================================================
 
         // --- RITMO RELAJADO (GCD -> GCD) ---
-        // Se aplica solo cuando vienes de un GCD y vas a otro GCD (ej. Combo normal).
-        private const int RelaxedDelayMs = 150;
-        private const int RelaxedJitterMs = 30;
+        private const int RelaxedDelayMs = 200;
+        private const int RelaxedJitterMs = 50;
 
         // --- MODO ANSIOSO (Weaving / Queueing) ---
-        // Se aplica en cualquier otro caso (GCD->oGCD, oGCD->oGCD).
-        // NOTA: Si MNK_Logic usa Queueing (0.5s antes), este delay se suma.
-        // Con 150ms, el worker esperará un poco antes de empezar el spam.
-        private const int AnxiousDelayMs = 70;
-        private const int AnxiousJitterMs = 15;
+        private const int AnxiousDelayMs = 150;
+        private const int AnxiousJitterMs = 25;
 
-        // --- SPAM (MACHACAR BOTÓN) ---
+        // --- SPAM ---
         private const int MinSpamCount = 2;
         private const int MaxSpamCount = 3;
-
-        // Intervalo entre pulsaciones (Spam lento para evitar saturación)
-        private const int SpamIntervalMs = 80;
+        private const int SpamIntervalMs = 100;
         private const int SpamIntervalJitterMs = 15;
 
         // --- FÍSICA ---
-        private const int KeyHoldMs = 80;
+        private const int KeyHoldMs = 100;
         private const int KeyHoldJitterMs = 15;
 
         // =====================================================================================
@@ -71,7 +65,6 @@ namespace MyOwnACR
         private static Task _workerTask = null!;
         private static bool _initialized = false;
 
-        // Estado interno
         private static DateTime _lastSentTime = DateTime.MinValue;
         private static bool _lastWasGCD = true;
 
@@ -86,17 +79,38 @@ namespace MyOwnACR
             if (_initialized) return;
             _cts = new CancellationTokenSource();
             _inputQueue = new BlockingCollection<InputTask>();
+
+            // Usamos LongRunning para asegurar un hilo dedicado
             _workerTask = Task.Factory.StartNew(WorkerLoop, _cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+
             _initialized = true;
-            Plugin.Instance?.SendLog("[InputSender] Worker iniciado (Cola dedicada).");
+            Plugin.Instance?.SendLog("[InputSender] Worker iniciado.");
+            Plugin.Log.Debug("[InputSender] Sistema inicializado.");
         }
 
         public static void Dispose()
         {
             if (!_initialized) return;
+
             _cts.Cancel();
             _inputQueue.CompleteAdding();
-            try { _workerTask.Wait(1000); } catch { }
+
+            try
+            {
+                // Esperar a que el worker termine (máx 1s)
+                _workerTask.Wait(1000);
+            }
+            catch (AggregateException ae)
+            {
+                // Manejar la excepción esperada de cancelación
+                ae.Handle(e => e is TaskCanceledException);
+            }
+            catch (Exception ex)
+            {
+                // Loguear cualquier otro error inesperado al cerrar
+                if (Plugin.Log != null) Plugin.Log.Warning($"Error cerrando InputSender: {ex.Message}");
+            }
+
             _inputQueue.Dispose();
             _cts.Dispose();
             _initialized = false;
@@ -106,13 +120,11 @@ namespace MyOwnACR
         {
             if (!_initialized) Initialize();
 
-            // --- FILTRO ANTI-DUPLICACIÓN (DEBOUNCE) ---
-            // Si intentamos enviar la MISMA tecla en menos de 200ms, asumimos que es 
-            // la lógica ejecutándose dos veces antes de bloquearse. Ignoramos la segunda.
+            // Anti-Duplicación
             var now = DateTime.UtcNow;
             if (key == _lastInputKey && (now - _lastInputAddedTime).TotalMilliseconds < 200)
             {
-                return; // Ignorar duplicado
+                return;
             }
 
             if (!_inputQueue.IsAddingCompleted)
@@ -132,15 +144,17 @@ namespace MyOwnACR
                     ProcessTask(task);
                 }
             }
-            catch (OperationCanceledException) { }
-            catch (Exception ex) { Plugin.Instance?.SendLog($"[InputSender Error] {ex.Message}"); }
+            catch (OperationCanceledException) { /* Normal al cerrar */ }
+            catch (Exception ex)
+            {
+                // Loguear error crítico en ambas consolas
+                Plugin.Log.Error(ex, "InputSender Worker ha fallado.");
+                Plugin.Instance?.SendLog($"[InputSender Error] {ex.Message}");
+            }
         }
 
         private static void ProcessTask(InputTask task)
         {
-            // --- 1. LÓGICA DE RITMO CONTEXTUAL ---
-            // Solo usamos modo relajado si es GCD puro -> GCD puro.
-            // Si hay weaving o pre-pull, usamos modo ansioso.
             bool isRelaxedTransition = _lastWasGCD && task.IsGCD;
             _lastWasGCD = task.IsGCD;
 
@@ -158,7 +172,6 @@ namespace MyOwnACR
 
             _lastSentTime = DateTime.UtcNow;
 
-            // --- 2. EJECUCIÓN FÍSICA ---
             PressModifiers(task.BarType);
 
             int clicks = _rng.Next(MinSpamCount, MaxSpamCount + 1);
