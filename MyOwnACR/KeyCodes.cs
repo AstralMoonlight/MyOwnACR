@@ -1,3 +1,9 @@
+// Archivo: MyOwnACR/KeyCodes.cs
+// Descripción: Contiene las definiciones de teclas personalizadas y estructuras base proporcionadas por el usuario.
+// FIX: Se renombra la propiedad 'Modifiers' a 'Bar' para solucionar el error CS1061.
+
+using System;
+
 namespace MyOwnACR
 {
     // Tipos de Barra (Tus 5 Hotbars)
@@ -8,6 +14,27 @@ namespace MyOwnACR
         Barra3_Shift,      // Shift + Tecla
         Barra4_Alt,        // Alt + Tecla
         Barra5_CtrlAlt     // Ctrl + Alt + Tecla
+    }
+
+    /// <summary>
+    /// Clase contenedora para una asignación de tecla.
+    /// Mantenida para compatibilidad con JobConfigs (MNK.cs).
+    /// </summary>
+    [Serializable]
+    public class KeyBind
+    {
+        public byte Key { get; set; }
+
+        // CAMBIO: Renombrado de 'Modifiers' a 'Bar' para coincidir con la lógica existente (MNK_Logic.cs, Survival.cs)
+        public HotbarType Bar { get; set; }
+
+        public KeyBind() { }
+
+        public KeyBind(byte key, HotbarType bar)
+        {
+            Key = key;
+            Bar = bar;
+        }
     }
 
     // Tus Teclas Base (Códigos Virtuales de Windows)
@@ -35,10 +62,7 @@ namespace MyOwnACR
         public const byte V = 0x56;
 
         // Símbolos Especiales (Teclado Español/ISO)
-        // La tecla a la izquierda del 1 (| o º) suele ser VK_OEM_5 o VK_OEM_3
         public const byte Barrita = 0xDC; // VK_OEM_5 (La barra | o º)
-
-        // La tecla a la izquierda de la Z (< o >) suele ser VK_OEM_102
         public const byte MenorQue = 0xE2; // VK_OEM_102 (< >)
 
         // Teclas F

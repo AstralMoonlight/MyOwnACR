@@ -1,17 +1,19 @@
+// Archivo: MyOwnACR/JobConfigs/MNK.cs
+// Descripción: Configuración de rotación y teclas específicas para Monk (Dawntrail).
+// Define KeyBinds, preferencias de Weaving y tiempos de animación.
+
 using System;
-using MyOwnACR; // NECESARIO para encontrar 'Keys' y 'HotbarType'
+using MyOwnACR; // NECESARIO para encontrar 'Keys' y 'HotbarType' definida en KeyCodes.cs
 
 namespace MyOwnACR.JobConfigs
 {
-
-
     // Definimos el Enum para la preferencia de slot
     public enum WeaveSlotPreference
     {
         First,  // Usar lo antes posible (inmediato tras GCD)
         Second  // Esperar un poco (tardío, cerca del siguiente GCD)
     }
-    
+
     [Serializable]
     public class JobConfig_MNK
     {
@@ -122,4 +124,3 @@ namespace MyOwnACR.JobConfigs
         public int WeaveDelay_oGCD2_MS = 640;
     }
 }
-
