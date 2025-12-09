@@ -1,6 +1,7 @@
 // Archivo: Logic/MNK_Logic.cs
 // Descripción: Lógica de combate Monk completa.
-// AJUSTE: Añadido sistema de Queueing (Pre-press) de 0.5s para aprovechar la cola del servidor.
+// AJUSTE: Rango Melee en 3.5f.
+// FIX: Lógica de "Hold" para Phantom Rush. Si Brotherhood está disponible, se pausa el GCD Phantom Rush hasta tirar Brotherhood.
 
 using System;
 using System.Linq;
@@ -23,12 +24,11 @@ namespace MyOwnACR.Logic
         // =========================================================================
         // CONFIGURACIÓN & VARIABLES
         // =========================================================================
-        private const float MeleeRange = 5f;
+
+        private const float MeleeRange = 3.5f;
         private const int AoE_Threshold = 3;
 
         // --- SISTEMA DE QUEUEING (PRE-PRESS) ---
-        // Tiempo antes de que la habilidad esté lista en el que empezamos a spamear.
-        // FFXIV permite encolar acciones aprox 0.3s antes.
         private static float Action_Queue_Window = 0.3f;
 
         // --- ANTI-DRIFT ---
@@ -91,7 +91,7 @@ namespace MyOwnACR.Logic
         {
             if (am == null || player == null || config == null) return;
 
-            // 1. MANUAL
+            // 1. MANUAL (Prioridad Absoluta)
             if (!string.IsNullOrEmpty(QueuedManualAction))
             {
                 KeyBind? bindToPress = null;
@@ -129,38 +129,36 @@ namespace MyOwnACR.Logic
             var now = DateTime.Now;
 
             // 2. WEAVE TIMING CONTROL
-            // Importante: Si estamos usando Queueing (pre-press), permitimos entrar un poco antes del delay estricto
-            // para que InputSender empiece a trabajar.
             int requiredDelay;
             if (LastActionWasGCD) requiredDelay = config.WeaveDelay_oGCD1_MS;
             else requiredDelay = config.WeaveDelay_oGCD2_MS;
 
-            // Si falta muy poco para cumplir el delay (menos de la ventana de queue), dejamos pasar
             if ((now - LastAnyActionTime).TotalMilliseconds < (requiredDelay - (Action_Queue_Window * 1000))) return;
 
             bool inCombat = Plugin.Condition?[ConditionFlag.InCombat] ?? false;
             var target = player.TargetObject;
             bool hasTarget = target != null && target.IsValid();
 
-            // 3. DOWNTIME
+            // 3. DOWNTIME / FUERA DE RANGO
             bool inRange = hasTarget && IsInMeleeRange(player);
 
             if (!inCombat || !inRange)
             {
                 if (!inCombat) OgcdCount = 0;
 
-                // Meditation (Sin queueing agresivo fuera de combate, usamos check normal)
+                // 3.1 MEDITACIÓN
                 if (player.Level >= MNK_Levels.Meditation)
                 {
                     var gauge = Plugin.JobGauges.Get<MNKGauge>();
-                    if (gauge.Chakra < 5 && CanUseRecast(am, MNK_IDs.Meditation, 0)) // 0 tolerancia fuera combate
+                    if (gauge.Chakra < 5 && CanUseRecast(am, MNK_IDs.Meditation, 0))
                     {
                         ExecuteAction(MNK_IDs.Meditation, config.Meditation);
                         return;
                     }
                 }
 
-                if (hasTarget)
+                // 3.2 REPLIES
+                if (hasTarget && inCombat)
                 {
                     if (HasStatus(player, MNK_IDs.Status_FiresRumination) && CanUseRecast(am, MNK_IDs.FiresReply))
                     {
@@ -174,7 +172,15 @@ namespace MyOwnACR.Logic
                     }
                 }
 
-                bool hasAnyForm = HasStatus(player, MNK_IDs.Status_OpoOpoForm) || HasStatus(player, MNK_IDs.Status_RaptorForm) || HasStatus(player, MNK_IDs.Status_CoeurlForm) || HasStatus(player, MNK_IDs.Status_FormlessFist);
+                // 3.3 FORM SHIFT
+                bool hasAnyForm = HasStatus(player, MNK_IDs.Status_OpoOpoForm) ||
+                                  HasStatus(player, MNK_IDs.Status_RaptorForm) ||
+                                  HasStatus(player, MNK_IDs.Status_CoeurlForm) ||
+                                  HasStatus(player, MNK_IDs.Status_FormlessFist) ||
+                                  HasStatus(player, MNK_IDs.Status_PerfectBalance);
+
+                if (LastProposedAction == MNK_IDs.FormShift && (now - LastAnyActionTime).TotalSeconds < 2.0f) hasAnyForm = true;
+
                 if (player.Level >= MNK_Levels.FormShift && !hasAnyForm && CanUseRecast(am, MNK_IDs.FormShift))
                 {
                     ExecuteAction(MNK_IDs.FormShift, config.FormShift);
@@ -194,12 +200,12 @@ namespace MyOwnACR.Logic
             {
                 uint actionId = gcdCandidate.Value.actionId;
                 if (IsBlitz(actionId)) actionId = MNK_IDs.MasterfulBlitz;
-                // Usamos Action_Queue_Window aquí para el GCD
                 isActionReady = CanUseRecast(am, actionId, Action_Queue_Window);
             }
 
             if (isActionReady && gcdCandidate.HasValue)
             {
+                // Auto True North logic...
                 if (operation.TrueNorth_Auto)
                 {
                     if ((now - LastTrueNorthTime).TotalSeconds > 10)
@@ -230,16 +236,17 @@ namespace MyOwnACR.Logic
 
             // 6. OGCD LOGIC
             int maxWeaves = config.EnableDoubleWeave ? 2 : 1;
-
-            // Calculamos cuánto falta para el siguiente GCD
             float gcdTotal = am->GetRecastTime(FFXIVClientStructs.FFXIV.Client.Game.ActionType.Action, 11);
             float gcdElapsed = am->GetRecastTimeElapsed(FFXIVClientStructs.FFXIV.Client.Game.ActionType.Action, 11);
             float gcdRemaining = (gcdTotal > 0) ? Math.Max(0, gcdTotal - gcdElapsed) : 0;
 
             if (OgcdCount < maxWeaves)
             {
-                // Permitimos weaving si hay tiempo (más de 0.6s) o si acabamos de hacer GCD (inicio ventana)
-                if (gcdRemaining > 0.6f || LastActionWasGCD)
+                // Permitimos weaving si hay tiempo, si acabamos de hacer GCD, 
+                // O si estamos haciendo "Hold" (GCD está listo pero GetNextGcdCandidate devolvió null).
+                bool isHolding = (gcdRemaining <= 0.01f && !isActionReady);
+
+                if (gcdRemaining > 0.6f || LastActionWasGCD || isHolding)
                 {
                     TryUseOgcd(am, config, player, operation);
                 }
@@ -251,22 +258,14 @@ namespace MyOwnACR.Logic
         // =========================================================================
         private static void PressBind(KeyBind bind, bool isGCD) => InputSender.Send(bind.Key, bind.Bar, isGCD);
 
-        // --- CORE: Check con soporte de Queueing ---
         private unsafe static bool CanUseRecast(ActionManager* am, uint id, float queueWindow = 0.5f)
         {
             var type = FFXIVClientStructs.FFXIV.Client.Game.ActionType.Action;
-
-            // Obtenemos el tiempo total y el transcurrido
             float total = am->GetRecastTime(type, id);
             float elapsed = am->GetRecastTimeElapsed(type, id);
             float remaining = (total > 0) ? Math.Max(0, total - elapsed) : 0;
-
-            // Si falta menos que nuestra ventana de queueing, consideramos que está "listo"
-            // para empezar a spamear la tecla.
             return remaining <= queueWindow;
         }
-
-        // ... (Resto de Helpers sin cambios: GetStatusTime, GetBestOpoAction, etc.) ...
 
         private static float GetStatusTime(IPlayerCharacter player, ushort statusId)
         {
@@ -275,6 +274,7 @@ namespace MyOwnACR.Logic
             return 0;
         }
 
+        // ... (Resto de métodos GetBest... iguales) ...
         private static (uint, KeyBind) GetBestOpoAction(bool useAoE, MNKGauge gauge, JobConfig_MNK config, uint level)
         {
             if (useAoE && level >= MNK_Levels.ArmOfTheDestroyer) return (MNK_IDs.ArmOfTheDestroyer, config.ArmOfTheDestroyer);
@@ -356,13 +356,35 @@ namespace MyOwnACR.Logic
                 if (realChakraCount == 3)
                 {
                     uint specificBlitzId = GetActiveBlitzId(gauge);
-                    if (specificBlitzId == MNK_IDs.PhantomRush) return (specificBlitzId, config.PhantomRush);
+
+                    // --- HOLD LOGIC: PHANTOM RUSH VS BROTHERHOOD ---
+                    if (specificBlitzId == MNK_IDs.PhantomRush)
+                    {
+                        if (player.Level >= MNK_Levels.Brotherhood)
+                        {
+                            float bhTotal = am->GetRecastTime(ActionType.Action, MNK_IDs.Brotherhood);
+                            float bhElapsed = am->GetRecastTimeElapsed(ActionType.Action, MNK_IDs.Brotherhood);
+                            float bhCD = (bhTotal > 0) ? Math.Max(0, bhTotal - bhElapsed) : 0;
+
+                            // Si Brotherhood está listo (CD < 0.6s) y NO está activo:
+                            // Retornamos null. Esto causará que 'Execute' salte la fase GCD y entre en fase oGCD
+                            // para intentar lanzar Brotherhood inmediatamente.
+                            if (bhCD <= 0.6f && !HasStatus(player, MNK_IDs.Status_Brotherhood))
+                            {
+                                return null;
+                            }
+                        }
+                        return (specificBlitzId, config.PhantomRush);
+                    }
+                    // ------------------------------------------------
+
                     if (specificBlitzId == MNK_IDs.RisingPhoenix) return (specificBlitzId, config.RisingPhoenix);
                     if (specificBlitzId == MNK_IDs.ElixirField) return (specificBlitzId, config.ElixirField);
                     return (specificBlitzId, config.MasterfulBlitz);
                 }
             }
 
+            // ... (Resto de la lógica GCD igual) ...
             if (player.Level >= MNK_Levels.PerfectBalance && isPerfectBalance)
             {
                 if (player.Level < MNK_Levels.MasterfulBlitz) return GetBestOpoAction(useAoE, gauge, config, player.Level);

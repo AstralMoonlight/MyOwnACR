@@ -1,6 +1,7 @@
 // Archivo: MyOwnACR/Plugin.cs
 // Descripción: Clase principal del Plugin.
-// AJUSTES: Implementación de Thread Safety para WebSocket (SemaphoreSlim) y gestión robusta de hilos (Issue #2).
+// AJUSTES: Corregido VirtualKey.Subtract -> VirtualKey.SUBTRACT para compilar.
+// FIX: Ahora al cambiar SaveCooldowns con tecla, se fuerza el envío de 'config_data' para actualizar el checkbox visual en el Dashboard.
 
 using Dalamud.Game.Command;
 using Dalamud.IoC;
@@ -76,6 +77,9 @@ namespace MyOwnACR
         // Variables de estado (Volatile para asegurar visibilidad entre hilos)
         private volatile bool isRunning = false;
         private volatile bool isHotkeyDown = false;
+
+        // NUEVO: Estado para la tecla de SaveCD (Debounce)
+        private volatile bool isSaveCdKeyDown = false;
 
         private DateTime lastSentTime = DateTime.MinValue; // Control de tasa de refresco del Dashboard
 
@@ -221,6 +225,7 @@ namespace MyOwnACR
 
             try
             {
+                // --- TOGGLE PRINCIPAL (ON/OFF) ---
                 bool currentState = KeyState[Config.ToggleHotkey];
                 if (currentState && !isHotkeyDown)
                 {
@@ -230,6 +235,34 @@ namespace MyOwnACR
                 else if (!currentState)
                 {
                     isHotkeyDown = false;
+                }
+
+                // --- NUEVO: TOGGLE SAVE COOLDOWNS (NUMPAD -) ---
+                // FIX: Usamos SUBTRACT (109) en lugar de Subtract
+                bool currentSaveCdState = KeyState[VirtualKey.SUBTRACT];
+                if (currentSaveCdState && !isSaveCdKeyDown)
+                {
+                    isSaveCdKeyDown = true;
+                    Config.Operation.SaveCD = !Config.Operation.SaveCD;
+                    Config.Save();
+
+                    string status = Config.Operation.SaveCD ? "ACTIVADO" : "DESACTIVADO";
+                    Chat.Print($"[ACR] Save Cooldowns: {status}");
+                    SendLog($"Save Cooldowns (Manual): {status}");
+
+                    // FIX: Forzamos el envío de la configuración completa para que el Dashboard actualice el checkbox
+                    var payload = new
+                    {
+                        Monk = Config.Monk,
+                        Survival = Config.Survival,
+                        Operation = Config.Operation,
+                        Global = new { ToggleKey = Config.ToggleHotkey.ToString() }
+                    };
+                    _ = SendJsonAsync("config_data", payload);
+                }
+                else if (!currentSaveCdState)
+                {
+                    isSaveCdKeyDown = false;
                 }
 
                 if (isRunning)
@@ -294,6 +327,7 @@ namespace MyOwnACR
                     _ = SendJsonAsync("status", new
                     {
                         is_running = isRunning,
+                        save_cd = Config.Operation.SaveCD, // Enviamos el estado de SaveCD al dashboard
                         status = statusText,
                         hp = (player != null) ? (int)player.CurrentHp : 0,
                         max_hp = (player != null) ? (int)player.MaxHp : 1,
@@ -376,10 +410,15 @@ namespace MyOwnACR
                     }
                 }
                 catch (OperationCanceledException) { break; }
+                catch (ObjectDisposedException) { break; } // FIX: Salida limpia si el objeto se destruye
+                catch (HttpListenerException) { if (token.IsCancellationRequested) break; } // FIX: Salida limpia si el listener se cierra
                 catch (Exception ex)
                 {
+                    // FIX: Si estamos cancelando, ignorar errores
+                    if (token.IsCancellationRequested) break;
+
                     Log.Error(ex, "Error fatal en servidor web. Reiniciando...");
-                    await Task.Delay(2000, token);
+                    try { await Task.Delay(2000, token); } catch { break; }
                 }
             }
         }
