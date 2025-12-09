@@ -1,7 +1,7 @@
 // Archivo: MyOwnACR/Plugin.cs
 // Descripción: Clase principal del Plugin.
-// AJUSTES: Corregido VirtualKey.Subtract -> VirtualKey.SUBTRACT para compilar.
-// FIX: Ahora al cambiar SaveCooldowns con tecla, se fuerza el envío de 'config_data' para actualizar el checkbox visual en el Dashboard.
+// AJUSTES: Desactivada validación de Chat (Node 2) por falsos positivos.
+// FIX: El bot ahora solo valida que la ventana del juego tenga el foco (IsSafeToAct).
 
 using Dalamud.Game.Command;
 using Dalamud.IoC;
@@ -12,6 +12,7 @@ using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.Keys;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Component.GUI; // Necesario para chequear el Chat UI
 using System;
 using System.Net;
 using System.Net.WebSockets;
@@ -60,6 +61,9 @@ namespace MyOwnACR
         [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
         [PluginService] internal static IKeyState KeyState { get; private set; } = null!;
 
+        // NUEVO: GameGui para detectar si el chat está abierto
+        [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
+
         // NUEVO: Servicio de Logging de Dalamud
         [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
@@ -72,7 +76,8 @@ namespace MyOwnACR
         private readonly CancellationTokenSource cts = new(); // Token global de cancelación para el plugin
 
         // Semáforo para proteger la escritura en el WebSocket (1 hilo a la vez)
-        private readonly SemaphoreSlim _socketLock = new SemaphoreSlim(1, 1);
+        // FIX: Renombrado para evitar IDE1006 (quitado el guion bajo)
+        private readonly SemaphoreSlim socketLock = new SemaphoreSlim(1, 1);
 
         // Variables de estado (Volatile para asegurar visibilidad entre hilos)
         private volatile bool isRunning = false;
@@ -82,10 +87,15 @@ namespace MyOwnACR
         private volatile bool isSaveCdKeyDown = false;
 
         private DateTime lastSentTime = DateTime.MinValue; // Control de tasa de refresco del Dashboard
+        private DateTime lastErrorLogTime = DateTime.MinValue; // Control de tasa de logs de error
 
         // Importación de DLL para traer la ventana del juego al frente
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        // NUEVO: Importación para leer qué ventana tiene el foco
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
 
         /// <summary>
         /// Constructor: Inicializa configuración, comandos, servidor web y hooks del framework.
@@ -162,7 +172,7 @@ namespace MyOwnACR
             }
             catch (Exception ex) { Log.Warning($"Error cerrando WebSocket: {ex.Message}"); }
 
-            _socketLock.Dispose();
+            socketLock.Dispose();
             cts.Dispose();
         }
 
@@ -180,6 +190,50 @@ namespace MyOwnACR
                 if (hWnd != IntPtr.Zero) SetForegroundWindow(hWnd);
             }
             catch (Exception ex) { Log.Error(ex, "Error enfocando ventana"); }
+        }
+
+        /// <summary>
+        /// Verifica si es seguro enviar inputs (Foco de ventana y Chat inactivo).
+        /// Devuelve true si es seguro, false y la razón si no lo es.
+        /// </summary>
+        private unsafe bool IsSafeToAct(out string failReason)
+        {
+            failReason = "";
+
+            // 1. Check de Ventana Activa (Anti Alt-Tab)
+            var gameHandle = Process.GetCurrentProcess().MainWindowHandle;
+            var activeHandle = GetForegroundWindow();
+
+            // Si las ventanas no coinciden, estamos fuera de foco.
+            // Ignoramos si activeHandle es 0 (a veces pasa en transiciones o overlays).
+            if (activeHandle != IntPtr.Zero && gameHandle != activeHandle)
+            {
+                failReason = $"Ventana Inactiva (Juego: {gameHandle}, Foco: {activeHandle})";
+                return false;
+            }
+
+            // 2. Check de Chat Activo (Evitar escribir en el chat)
+            // ESTADO: DESACTIVADO TEMPORALMENTE (Causa Falsos Positivos constantes)
+            // El Node(2) parece estar siempre visible en esta versión del juego.
+
+            /*
+            IntPtr chatLogPtr = GameGui.GetAddonByName("ChatLog", 1);
+            if (chatLogPtr != IntPtr.Zero)
+            {
+                var chatLog = (AtkUnitBase*)chatLogPtr;
+                if (chatLog->IsVisible)
+                {
+                    var textInputNode = chatLog->GetNodeById(2);
+                    if (textInputNode != null && textInputNode->IsVisible())
+                    {
+                        failReason = "Chat Activo (Detectado input de texto)";
+                        return false;
+                    }
+                }
+            }
+            */
+
+            return true;
         }
 
         private void OnCommand(string command, string args) => ToggleRunning();
@@ -267,24 +321,40 @@ namespace MyOwnACR
 
                 if (isRunning)
                 {
-                    var player = ObjectTable.LocalPlayer;
-                    if (player != null && player.CurrentHp > 0)
+                    // CHECK DE SEGURIDAD (Ventana Activa solamente)
+                    string blockReason;
+                    if (IsSafeToAct(out blockReason))
                     {
-                        ActionManager* am = ActionManager.Instance();
-                        if (am != null)
+                        var player = ObjectTable.LocalPlayer;
+                        if (player != null && player.CurrentHp > 0)
                         {
-                            var jobId = player.ClassJob.RowId;
-                            if (jobId == 20 || jobId == 2)
+                            ActionManager* am = ActionManager.Instance();
+                            if (am != null)
                             {
-                                bool survivalActionUsed = Logic.Survival.Execute(
-                                    am, player, Config.Survival, Config.Monk.SecondWind, Config.Monk.Bloodbath
-                                );
-
-                                if (!survivalActionUsed)
+                                var jobId = player.ClassJob.RowId;
+                                if (jobId == 20 || jobId == 2)
                                 {
-                                    Logic.MNK_Logic.Execute(am, player, Config.Monk, ObjectTable, Config.Operation);
+                                    bool survivalActionUsed = Logic.Survival.Execute(
+                                        am, player, Config.Survival, Config.Monk.SecondWind, Config.Monk.Bloodbath
+                                    );
+
+                                    if (!survivalActionUsed)
+                                    {
+                                        Logic.MNK_Logic.Execute(am, player, Config.Monk, ObjectTable, Config.Operation);
+                                    }
                                 }
                             }
+                        }
+                    }
+                    else
+                    {
+                        // Si está bloqueado y ha pasado 1 segundo, mandamos log para debuggear
+                        if ((DateTime.Now - lastErrorLogTime).TotalSeconds > 1)
+                        {
+                            lastErrorLogTime = DateTime.Now;
+                            string msg = $"Bot detenido por seguridad: {blockReason}";
+                            SendLog(msg);
+                            // Log.Debug(msg); // Descomentar para ver en consola Dalamud
                         }
                     }
                 }
@@ -356,7 +426,7 @@ namespace MyOwnACR
             bool lockTaken = false;
             try
             {
-                await _socketLock.WaitAsync(cts.Token);
+                await socketLock.WaitAsync(cts.Token);
                 lockTaken = true;
 
                 if (activeSocket == null || activeSocket.State != WebSocketState.Open) return;
@@ -371,7 +441,7 @@ namespace MyOwnACR
             catch (Exception ex) { Log.Warning($"Error WebSocket: {ex.Message}"); }
             finally
             {
-                if (lockTaken) try { _socketLock.Release(); } catch { }
+                if (lockTaken) try { socketLock.Release(); } catch { }
             }
         }
 
@@ -395,9 +465,9 @@ namespace MyOwnACR
                         {
                             var wsContext = await context.AcceptWebSocketAsync(null);
 
-                            await _socketLock.WaitAsync(token);
+                            await socketLock.WaitAsync(token);
                             try { activeSocket = wsContext.WebSocket; }
-                            finally { _socketLock.Release(); }
+                            finally { socketLock.Release(); }
 
                             Log.Info("Cliente WebSocket conectado");
                             await ReceiveCommands(activeSocket, token);
