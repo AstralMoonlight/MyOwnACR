@@ -1,50 +1,78 @@
 <!DOCTYPE html>
 <html lang="es" data-theme="night">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>ACR Command Center</title>
-    
-    <!-- Librerías: DaisyUI (Componentes), Tailwind (Estilos), FontAwesome (Iconos) -->
+
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.4.19/dist/full.min.css" rel="stylesheet" />
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    
+
     <style>
         /* Prevención de comportamientos táctiles no deseados en móviles */
-        body { 
-            overscroll-behavior: none; 
-            touch-action: manipulation; 
-            user-select: none; 
+        body {
+            overscroll-behavior: none;
+            touch-action: manipulation;
+            user-select: none;
             transition: border-color 0.3s ease;
-            border-left: 8px solid #ef4444; /* Rojo: Detenido */
+            border-left: 8px solid #ef4444;
+            /* Rojo: Detenido */
             border-right: 8px solid #ef4444;
         }
+
         /* Clase activa: Verde Cian */
-        .border-active { border-color: #58bfbf !important; }
-        
+        .border-active {
+            border-color: #58bfbf !important;
+        }
+
         /* Ocultar scrollbar visualmente pero permitir scroll (Global) */
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
 
         /* Estilos para botones de acción manual */
         .btn-force {
             transition: all 0.1s;
-            border-bottom: 4px solid rgba(0,0,0,0.1); 
-            background-color: oklch(var(--b1)); 
+            border-bottom: 4px solid rgba(0, 0, 0, 0.1);
+            background-color: oklch(var(--b1));
             color: oklch(var(--bc));
         }
-        .btn-force:hover { background-color: oklch(var(--b2)); }
-        .btn-force:active { transform: translateY(2px); border-bottom: 0px; }
-        
+
+        .btn-force:hover {
+            background-color: oklch(var(--b2));
+        }
+
+        .btn-force:active {
+            transform: translateY(2px);
+            border-bottom: 0px;
+        }
+
         /* Animación para indicar acción en cola */
         .btn-queued {
-            background-color: #fbbd23 !important; 
+            background-color: #fbbd23 !important;
             color: black !important;
             border-color: #fbbd23 !important;
             animation: pulse 1s cubic-bezier(0.4, 0, 0.6, 1) infinite;
         }
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .7; } }
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: .7;
+            }
+        }
 
         /* Scroll personalizado para el modal de config */
         .config-scroll {
@@ -54,38 +82,45 @@
 
         /* Estilos Consola Debug */
         .console-line {
-            border-bottom: 1px solid rgba(255,255,255,0.05);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
             padding: 2px 0;
         }
-        .console-line:last-child { border-bottom: none; }
-        
+
+        .console-line:last-child {
+            border-bottom: none;
+        }
+
         /* Scrollbar visible para la consola (Estilo oscuro) */
         #debug-console::-webkit-scrollbar {
             width: 8px;
         }
+
         #debug-console::-webkit-scrollbar-track {
-            background: rgba(0,0,0,0.3);
+            background: rgba(0, 0, 0, 0.3);
             border-radius: 4px;
         }
+
         #debug-console::-webkit-scrollbar-thumb {
-            background: rgba(255,255,255,0.2);
+            background: rgba(255, 255, 255, 0.2);
             border-radius: 4px;
         }
+
         #debug-console::-webkit-scrollbar-thumb:hover {
-            background: rgba(255,255,255,0.4);
+            background: rgba(255, 255, 255, 0.4);
         }
     </style>
 </head>
+
 <body class="bg-base-300 min-h-screen flex flex-col font-sans">
 
-    <!-- BARRA DE NAVEGACIÓN -->
     <div class="navbar bg-base-100/90 backdrop-blur shadow-sm sticky top-0 z-50 h-16">
         <div class="flex-1">
             <div class="flex items-center gap-2 px-2">
                 <i class="fa-solid fa-ghost text-2xl text-primary"></i>
                 <div class="flex flex-col leading-none">
                     <span class="font-black text-lg tracking-widest">MYOWN<span class="text-primary">ACR</span></span>
-                    <span class="text-[0.6rem] opacity-60 uppercase font-bold text-error" id="connection-status">Desconectado</span>
+                    <span class="text-[0.6rem] opacity-60 uppercase font-bold text-error"
+                        id="connection-status">Desconectado</span>
                 </div>
             </div>
         </div>
@@ -101,12 +136,9 @@
         </div>
     </div>
 
-    <!-- CONTENIDO PRINCIPAL -->
     <main class="flex-grow p-4 grid grid-cols-1 lg:grid-cols-12 gap-4 max-w-7xl mx-auto w-full">
 
-        <!-- COLUMNA IZQUIERDA: Estado y Control -->
         <div class="lg:col-span-4 space-y-4">
-            <!-- Info Objetivo -->
             <div class="card bg-base-100 shadow-sm">
                 <div class="card-body p-5">
                     <div class="flex justify-between items-end mb-2">
@@ -116,7 +148,8 @@
                     <h2 class="text-2xl font-black truncate text-secondary" id="target">--</h2>
                     <div class="w-full bg-base-300 rounded-full h-4 mt-1 overflow-hidden relative">
                         <div id="hp-bar" class="bg-secondary h-4 transition-all duration-300" style="width: 0%"></div>
-                        <span id="hp-text" class="absolute inset-0 flex items-center justify-center text-[0.6rem] font-bold text-white drop-shadow-md">0%</span>
+                        <span id="hp-text"
+                            class="absolute inset-0 flex items-center justify-center text-[0.6rem] font-bold text-white drop-shadow-md">0%</span>
                     </div>
                     <div class="divider my-2"></div>
                     <div class="text-center">
@@ -126,7 +159,6 @@
                 </div>
             </div>
 
-            <!-- Botones Maestros -->
             <div class="grid grid-cols-2 gap-3">
                 <button class="btn btn-success btn-lg shadow text-white" onclick="toggleBot(true)">
                     <i class="fa-solid fa-play"></i> START
@@ -136,25 +168,24 @@
                 </button>
             </div>
 
-            <!-- Toggle Rápido: Save Cooldowns -->
             <div class="form-control">
                 <label class="label cursor-pointer bg-base-100 p-4 rounded-xl shadow-sm hover:bg-base-200 transition">
                     <div class="flex items-center gap-3">
-                        <div class="p-2 bg-warning/10 rounded-lg text-warning"><i class="fa-solid fa-lock text-xl"></i></div>
+                        <div class="p-2 bg-warning/10 rounded-lg text-warning"><i class="fa-solid fa-lock text-xl"></i>
+                        </div>
                         <div class="flex flex-col">
                             <span class="font-bold text-lg">Save Cooldowns</span>
                             <span class="text-xs opacity-60">Reservar recursos (No Burst)</span>
                         </div>
                     </div>
-                    <input type="checkbox" class="toggle toggle-warning toggle-lg" id="op_savecd" onchange="updateOps()" />
+                    <input type="checkbox" class="toggle toggle-warning toggle-lg" id="op_savecd"
+                        onchange="updateOps()" />
                 </label>
             </div>
         </div>
 
-        <!-- COLUMNA DERECHA: Paneles de Control -->
         <div class="lg:col-span-8 space-y-4">
-            
-            <!-- Acciones Manuales (Inyecciones) -->
+
             <div class="card bg-base-100 shadow-sm">
                 <div class="card-body p-4">
                     <h3 class="text-xs font-black opacity-50 uppercase mb-3 flex items-center gap-2">
@@ -168,16 +199,20 @@
                         </button>
                         <button class="btn btn-force h-14" data-action="Sprint" onclick="forceAction(this)">
                             <div class="flex flex-col items-center leading-none gap-1">
-                                <i class="fa-solid fa-person-running text-success"></i><span class="text-[0.65rem]">Sprint</span>
+                                <i class="fa-solid fa-person-running text-success"></i><span
+                                    class="text-[0.65rem]">Sprint</span>
                             </div>
                         </button>
                         <button class="btn btn-force h-14" data-action="RiddleOfEarth" onclick="forceAction(this)">
                             <div class="flex flex-col items-center leading-none gap-1">
-                                <i class="fa-solid fa-shield-halved text-info"></i><span class="text-[0.65rem]">RoEarth</span>
+                                <i class="fa-solid fa-shield-halved text-info"></i><span
+                                    class="text-[0.65rem]">RoEarth</span>
                             </div>
                         </button>
-                        <button class="btn btn-force h-14" data-action="Feint" onclick="forceAction(this)"><span class="text-xs font-bold">Feint</span></button>
-                        <button class="btn btn-force h-14" data-action="Mantra" onclick="forceAction(this)"><span class="text-xs font-bold">Mantra</span></button>
+                        <button class="btn btn-force h-14" data-action="Feint" onclick="forceAction(this)"><span
+                                class="text-xs font-bold">Feint</span></button>
+                        <button class="btn btn-force h-14" data-action="Mantra" onclick="forceAction(this)"><span
+                                class="text-xs font-bold">Mantra</span></button>
                         <button class="btn btn-force h-14" data-action="Bloodbath" onclick="forceAction(this)">
                             <div class="flex flex-col items-center leading-none gap-1">
                                 <i class="fa-solid fa-droplet text-error"></i><span class="text-[0.65rem]">Blood</span>
@@ -185,15 +220,16 @@
                         </button>
                         <button class="btn btn-force h-14" data-action="SecondWind" onclick="forceAction(this)">
                             <div class="flex flex-col items-center leading-none gap-1">
-                                <i class="fa-solid fa-heart text-success"></i><span class="text-[0.65rem]">2nd Wind</span>
+                                <i class="fa-solid fa-heart text-success"></i><span class="text-[0.65rem]">2nd
+                                    Wind</span>
                             </div>
                         </button>
-                        <button class="btn btn-force h-14" data-action="TrueNorth" onclick="forceAction(this)"><span class="text-xs font-bold">TrueNorth</span></button>
+                        <button class="btn btn-force h-14" data-action="TrueNorth" onclick="forceAction(this)"><span
+                                class="text-xs font-bold">TrueNorth</span></button>
                     </div>
                 </div>
             </div>
 
-            <!-- Toggles de Lógica -->
             <div class="card bg-base-100 shadow-sm">
                 <div class="card-body p-4">
                     <h3 class="text-xs font-black opacity-50 uppercase mb-3 flex items-center gap-2">
@@ -202,37 +238,43 @@
                     <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
                         <div class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3">
                             <span class="text-sm font-bold">AoE (Área)</span>
-                            <input type="checkbox" class="toggle toggle-sm toggle-info" id="op_aoe" onchange="updateOps()" />
+                            <input type="checkbox" class="toggle toggle-sm toggle-info" id="op_aoe"
+                                onchange="updateOps()" />
                         </div>
                         <div class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3">
                             <span class="text-sm font-bold">True North</span>
-                            <input type="checkbox" class="toggle toggle-sm toggle-info" id="op_truenorth" onchange="updateOps()" />
+                            <input type="checkbox" class="toggle toggle-sm toggle-info" id="op_truenorth"
+                                onchange="updateOps()" />
                         </div>
                         <label class="label cursor-pointer bg-base-200 rounded-lg px-3 hover:bg-base-300">
-                            <span class="label-text text-xs font-bold uppercase">Perf. Balance</span> 
-                            <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" id="op_pb" onchange="updateOps()" />
+                            <span class="label-text text-xs font-bold uppercase">Perf. Balance</span>
+                            <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" id="op_pb"
+                                onchange="updateOps()" />
                         </label>
                         <label class="label cursor-pointer bg-base-200 rounded-lg px-3 hover:bg-base-300">
-                            <span class="label-text text-xs font-bold uppercase">Riddle Fire</span> 
-                            <input type="checkbox" class="checkbox checkbox-sm checkbox-error" id="op_rof" onchange="updateOps()" />
+                            <span class="label-text text-xs font-bold uppercase">Riddle Fire</span>
+                            <input type="checkbox" class="checkbox checkbox-sm checkbox-error" id="op_rof"
+                                onchange="updateOps()" />
                         </label>
                         <label class="label cursor-pointer bg-base-200 rounded-lg px-3 hover:bg-base-300">
-                            <span class="label-text text-xs font-bold uppercase">Brotherhood</span> 
-                            <input type="checkbox" class="checkbox checkbox-sm checkbox-warning" id="op_bh" onchange="updateOps()" />
+                            <span class="label-text text-xs font-bold uppercase">Brotherhood</span>
+                            <input type="checkbox" class="checkbox checkbox-sm checkbox-warning" id="op_bh"
+                                onchange="updateOps()" />
                         </label>
                         <label class="label cursor-pointer bg-base-200 rounded-lg px-3 hover:bg-base-300">
-                            <span class="label-text text-xs font-bold uppercase">Riddle Wind</span> 
-                            <input type="checkbox" class="checkbox checkbox-sm checkbox-success" id="op_row" onchange="updateOps()" />
+                            <span class="label-text text-xs font-bold uppercase">Riddle Wind</span>
+                            <input type="checkbox" class="checkbox checkbox-sm checkbox-success" id="op_row"
+                                onchange="updateOps()" />
                         </label>
                         <label class="label cursor-pointer bg-base-200 rounded-lg px-3 hover:bg-base-300 md:col-span-2">
-                            <span class="label-text text-xs font-bold uppercase">Forbidden Chakra</span> 
-                            <input type="checkbox" class="checkbox checkbox-sm checkbox-accent" id="op_fc" onchange="updateOps()" />
+                            <span class="label-text text-xs font-bold uppercase">Forbidden Chakra</span>
+                            <input type="checkbox" class="checkbox checkbox-sm checkbox-accent" id="op_fc"
+                                onchange="updateOps()" />
                         </label>
                     </div>
                 </div>
             </div>
 
-            <!-- CONSOLA DE DEBUG (Actualizada con Copiar + Selección) -->
             <div class="card bg-base-100 shadow-sm mt-4">
                 <div class="card-body p-4">
                     <div class="flex justify-between items-center mb-2">
@@ -248,8 +290,8 @@
                             </button>
                         </div>
                     </div>
-                    <!-- Área de Logs: select-text para permitir selección, sin no-scrollbar -->
-                    <div id="debug-console" class="bg-black/90 rounded-lg p-2 h-40 overflow-y-auto font-mono text-[0.65rem] text-success leading-tight shadow-inner select-text cursor-text">
+                    <div id="debug-console"
+                        class="bg-black/90 rounded-lg p-2 h-40 overflow-y-auto font-mono text-[0.65rem] text-success leading-tight shadow-inner select-text cursor-text">
                         <div class="opacity-30 italic text-center mt-10">Esperando conexión...</div>
                     </div>
                 </div>
@@ -258,25 +300,25 @@
         </div>
     </main>
 
-    <!-- MODAL DE CONFIGURACIÓN -->
     <dialog id="config_modal" class="modal modal-bottom sm:modal-middle">
         <div class="modal-box bg-base-100 max-w-2xl">
-            <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i class="fa-solid fa-gear"></i> Ajustes Internos</h3>
+            <h3 class="font-bold text-lg mb-4 flex items-center gap-2"><i class="fa-solid fa-gear"></i> Ajustes Internos
+            </h3>
             <div class="join join-vertical w-full">
-                <!-- 1. Global -->
                 <div class="collapse collapse-arrow join-item border border-base-300">
-                    <input type="radio" name="config-accordion" checked="checked" /> 
+                    <input type="radio" name="config-accordion" checked="checked" />
                     <div class="collapse-title text-sm font-bold text-primary">GLOBAL</div>
                     <div class="collapse-content pt-2">
                         <div class="form-control">
-                            <label class="label"><span class="label-text font-bold">Tecla Toggle (Start/Stop)</span></label>
-                            <select id="global_hotkey" class="select select-bordered select-sm w-full font-mono"></select>
+                            <label class="label"><span class="label-text font-bold">Tecla Toggle
+                                    (Start/Stop)</span></label>
+                            <select id="global_hotkey"
+                                class="select select-bordered select-sm w-full font-mono"></select>
                         </div>
                     </div>
                 </div>
-                <!-- 2. Weaving -->
                 <div class="collapse collapse-arrow join-item border border-base-300">
-                    <input type="radio" name="config-accordion" /> 
+                    <input type="radio" name="config-accordion" />
                     <div class="collapse-title text-sm font-bold text-secondary">WEAVING & TIMING</div>
                     <div class="collapse-content pt-2 space-y-3">
                         <div class="form-control">
@@ -286,22 +328,28 @@
                             </label>
                         </div>
                         <div class="form-control">
-                            <label class="label"><span class="label-text text-xs">Preferencia Single Weave</span></label>
+                            <label class="label"><span class="label-text text-xs">Preferencia Single
+                                    Weave</span></label>
                             <select id="weave_pref" class="select select-bordered select-sm w-full">
                                 <option value="0">First (Inmediato)</option>
                                 <option value="1">Second (Tardío)</option>
                             </select>
                         </div>
                         <div class="grid grid-cols-3 gap-2">
-                            <div class="form-control"><label class="label"><span class="label-text text-[0.65rem]">Anim Lock (ms)</span></label><input type="number" id="time_anim" class="input input-sm input-bordered w-full" /></div>
-                            <div class="form-control"><label class="label"><span class="label-text text-[0.65rem]">Delay OGCD1 (ms)</span></label><input type="number" id="time_ogcd1" class="input input-sm input-bordered w-full" /></div>
-                            <div class="form-control"><label class="label"><span class="label-text text-[0.65rem]">Delay OGCD2 (ms)</span></label><input type="number" id="time_ogcd2" class="input input-sm input-bordered w-full" /></div>
+                            <div class="form-control"><label class="label"><span class="label-text text-[0.65rem]">Anim
+                                        Lock (ms)</span></label><input type="number" id="time_anim"
+                                    class="input input-sm input-bordered w-full" /></div>
+                            <div class="form-control"><label class="label"><span class="label-text text-[0.65rem]">Delay
+                                        OGCD1 (ms)</span></label><input type="number" id="time_ogcd1"
+                                    class="input input-sm input-bordered w-full" /></div>
+                            <div class="form-control"><label class="label"><span class="label-text text-[0.65rem]">Delay
+                                        OGCD2 (ms)</span></label><input type="number" id="time_ogcd2"
+                                    class="input input-sm input-bordered w-full" /></div>
                         </div>
                     </div>
                 </div>
-                <!-- 3. Supervivencia -->
                 <div class="collapse collapse-arrow join-item border border-base-300">
-                    <input type="radio" name="config-accordion" /> 
+                    <input type="radio" name="config-accordion" />
                     <div class="collapse-title text-sm font-bold text-success">AUTO-SUPERVIVENCIA</div>
                     <div class="collapse-content pt-2 space-y-3">
                         <div class="form-control">
@@ -311,17 +359,21 @@
                             </label>
                         </div>
                         <div class="grid grid-cols-2 gap-4">
-                            <div class="form-control"><label class="label"><span class="label-text text-xs">Second Wind (%)</span></label><input type="number" id="surv_sw" class="input input-sm input-bordered w-full" /></div>
-                            <div class="form-control"><label class="label"><span class="label-text text-xs">Bloodbath (%)</span></label><input type="number" id="surv_bb" class="input input-sm input-bordered w-full" /></div>
+                            <div class="form-control"><label class="label"><span class="label-text text-xs">Second Wind
+                                        (%)</span></label><input type="number" id="surv_sw"
+                                    class="input input-sm input-bordered w-full" /></div>
+                            <div class="form-control"><label class="label"><span class="label-text text-xs">Bloodbath
+                                        (%)</span></label><input type="number" id="surv_bb"
+                                    class="input input-sm input-bordered w-full" /></div>
                         </div>
                     </div>
                 </div>
-                <!-- 4. Mapeo de Teclas -->
                 <div class="collapse collapse-arrow join-item border border-base-300">
-                    <input type="radio" name="config-accordion" /> 
+                    <input type="radio" name="config-accordion" />
                     <div class="collapse-title text-sm font-bold">MAPEO DE TECLAS</div>
                     <div class="collapse-content">
-                        <div id="skill-list" class="config-scroll space-y-1 pr-1 pt-2"></div>
+                        <div id="skill-list" class="config-scroll grid grid-cols-1 sm:grid-cols-2 gap-2 pr-1 pt-2">
+                        </div>
                     </div>
                 </div>
             </div>
@@ -334,32 +386,32 @@
     </dialog>
 
     <script>
-        const HOST = "127.0.0.1:5055"; 
+        const HOST = "127.0.0.1:5055";
         const ws = new WebSocket(`ws://${HOST}`);
         let currentConfig = {};
 
         // === DEFINICIONES ===
-        const BARS = { 0:"Base", 1:"Ctrl", 2:"Shift", 3:"Alt", 4:"Ctrl+Alt" };
+        const BARS = { 0: "Base", 1: "Ctrl", 2: "Shift", 3: "Alt", 4: "Ctrl+Alt" };
         const KEYS = {
             0x31: "1", 0x32: "2", 0x33: "3", 0x34: "4", 0x35: "5", 0x36: "6",
             0x51: "Q", 0x57: "W", 0x45: "E", 0x52: "R", 0x54: "T", 0x46: "F", 0x47: "G",
             0x5A: "Z", 0x58: "X", 0x43: "C", 0x56: "V",
             0xDC: "º (|)", 0xE2: "< (>)",
-            0x70:"F1", 0x71:"F2", 0x72:"F3", 0x73:"F4", 0x74:"F5", 0x75:"F6", 
-            0x76:"F7", 0x77:"F8", 0x78:"F9", 0x79:"F10", 0x7A:"F11", 0x7B:"F12",
+            0x70: "F1", 0x71: "F2", 0x72: "F3", 0x73: "F4", 0x74: "F5", 0x75: "F6",
+            0x76: "F7", 0x77: "F8", 0x78: "F9", 0x79: "F10", 0x7A: "F11", 0x7B: "F12",
             0x20: "Space", 0x1B: "Esc"
         };
-        const ACTIONS_NAME = { 
-            53:"Bootshine", 54:"True Strike", 56:"Snap Punch", 74:"Dragon Kick", 
-            61:"Twin Snakes", 66:"Demolish", 36945:"Leaping Opo", 36946:"Rising Raptor", 
-            36947:"Pouncing Coeurl", 25764:"Blitz", 110:"Perfect Bal.", 7396:"Riddle Fire"
+        const ACTIONS_NAME = {
+            53: "Bootshine", 54: "True Strike", 56: "Snap Punch", 74: "Dragon Kick",
+            61: "Twin Snakes", 66: "Demolish", 36945: "Leaping Opo", 36946: "Rising Raptor",
+            36947: "Pouncing Coeurl", 25764: "Blitz", 110: "Perfect Bal.", 7396: "Riddle Fire"
         };
 
         // === INICIALIZACIÓN ===
         const hotkeySelect = document.getElementById("global_hotkey");
         Object.entries(KEYS).forEach(([code, label]) => {
             const opt = document.createElement("option");
-            opt.value = label; 
+            opt.value = label;
             opt.innerText = label;
             hotkeySelect.appendChild(opt);
         });
@@ -382,7 +434,7 @@
 
             if (msg.type === "status") updateDashboard(msg.data);
             if (msg.type === "config_data") loadConfigToUI(msg.data);
-            
+
             // LÓGICA DE CONSOLA
             if (msg.type === "log") {
                 addLog(msg.data);
@@ -403,7 +455,7 @@
             const nextName = ACTIONS_NAME[d.next_action] || (d.next_action ? "ID " + d.next_action : "...");
             const comboEl = document.getElementById("combo");
             comboEl.innerText = (d.next_action) ? nextName : "...";
-            if(d.next_action) comboEl.classList.add("text-primary", "scale-110");
+            if (d.next_action) comboEl.classList.add("text-primary", "scale-110");
             else comboEl.classList.remove("text-primary", "scale-110");
 
             document.querySelectorAll('.btn-force').forEach(btn => {
@@ -413,20 +465,29 @@
             });
         }
 
+        // AQUÍ ESTÁ LA FUNCIÓN ACTUALIZADA
         function loadConfigToUI(cfg) {
             currentConfig = cfg;
+
+            // Configuración de Operaciones
             if (cfg.Operation) {
                 const op = cfg.Operation;
                 setCheck("op_aoe", op.AoE_Enabled); setCheck("op_truenorth", op.TrueNorth_Auto); setCheck("op_savecd", op.SaveCD);
-                setCheck("op_pb", op.UsePB); setCheck("op_rof", op.UseRoF); setCheck("op_bh", op.UseBrotherhood); 
+                setCheck("op_pb", op.UsePB); setCheck("op_rof", op.UseRoF); setCheck("op_bh", op.UseBrotherhood);
                 setCheck("op_row", op.UseRoW); setCheck("op_fc", op.UseForbiddenChakra);
             }
+
+            // Configuración Global
             if (cfg.Global) hotkeySelect.value = cfg.Global.ToggleKey;
+
+            // Configuración de Supervivencia
             if (cfg.Survival) {
                 setCheck("surv_enable", cfg.Survival.Enabled);
                 setVal("surv_sw", cfg.Survival.MinHp_SecondWind);
                 setVal("surv_bb", cfg.Survival.MinHp_Bloodbath);
             }
+
+            // Configuración del Monk (MAPEO MEJORADO)
             if (cfg.Monk) {
                 setCheck("weave_double", cfg.Monk.EnableDoubleWeave);
                 setVal("weave_pref", cfg.Monk.SingleWeaveSlotPreference);
@@ -436,32 +497,49 @@
 
                 const container = document.getElementById("skill-list");
                 container.innerHTML = "";
-                for (const [skill, bind] of Object.entries(cfg.Monk)) {
+
+                // Ordenar las habilidades alfabéticamente
+                const sortedSkills = Object.keys(cfg.Monk).sort();
+
+                sortedSkills.forEach(skill => {
+                    const bind = cfg.Monk[skill];
+
+                    // Validamos que sea un objeto de configuración válido (tiene Key y Bar)
                     if (bind && typeof bind.Key !== 'undefined' && typeof bind.Bar !== 'undefined') {
-                        const row = document.createElement("div");
-                        row.className = "flex justify-between items-center bg-base-100 p-2 rounded mb-1 text-xs border border-base-content/5";
-                        row.innerHTML = `
-                            <span class="font-bold opacity-70 w-1/3 truncate">${skill}</span>
-                            <div class="join w-2/3 justify-end">
-                                <select id="bar_${skill}" class="select select-xs select-ghost join-item bg-base-200">${opts(BARS, bind.Bar)}</select>
-                                <select id="key_${skill}" class="select select-xs select-ghost join-item bg-base-200 font-mono">${opts(KEYS, bind.Key)}</select>
+                        const card = document.createElement("div");
+                        // Diseño tipo tarjeta: Fondo oscuro suave, borde sutil
+                        card.className = "flex flex-col bg-base-200/50 p-2 rounded-lg border border-base-content/5 hover:border-base-content/20 transition-colors";
+
+                        card.innerHTML = `
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-[0.7rem] font-bold uppercase opacity-70 truncate w-full" title="${skill}">
+                                    ${skill}
+                                </span>
+                            </div>
+                            <div class="join w-full shadow-sm">
+                                <select id="bar_${skill}" class="select select-xs select-bordered join-item w-5/12 text-center bg-base-100 px-1 focus:outline-none focus:border-primary">
+                                    ${opts(BARS, bind.Bar)}
+                                </select>
+                                <select id="key_${skill}" class="select select-xs select-bordered join-item w-7/12 text-center bg-base-100 font-mono px-1 focus:outline-none focus:border-primary">
+                                    ${opts(KEYS, bind.Key)}
+                                </select>
                             </div>`;
-                        container.appendChild(row);
+                        container.appendChild(card);
                     }
-                }
+                });
             }
         }
 
         // === FUNCIONES DE CONSOLA ===
         function addLog(text, colorClass = "") {
             const c = document.getElementById("debug-console");
-            if(c.firstElementChild && c.firstElementChild.classList.contains('italic')) c.innerHTML = "";
-            
+            if (c.firstElementChild && c.firstElementChild.classList.contains('italic')) c.innerHTML = "";
+
             const line = document.createElement("div");
             line.className = `console-line ${colorClass}`;
             const time = new Date().toLocaleTimeString().split(' ')[0];
             line.innerHTML = `<span class="opacity-40 text-[0.6rem] mr-2 font-bold">[${time}]</span>${text}`;
-            
+
             c.appendChild(line);
             c.scrollTop = c.scrollHeight;
             if (c.children.length > 50) c.removeChild(c.firstChild);
@@ -512,12 +590,12 @@
             addLog("Configuración guardada.", "text-info");
         }
 
-        function toggleBot(state) { 
-            sendJson(state ? 'START' : 'STOP'); 
+        function toggleBot(state) {
+            sendJson(state ? 'START' : 'STOP');
             addLog(state ? "Bot INICIADO" : "Bot DETENIDO", state ? "text-success font-bold" : "text-error font-bold");
         }
-        function forceAction(btn) { 
-            if(navigator.vibrate) navigator.vibrate(50);
+        function forceAction(btn) {
+            if (navigator.vibrate) navigator.vibrate(50);
             const action = btn.getAttribute('data-action');
             sendJson("force_action", action);
             addLog(`Inyectando acción: ${action}`, "text-warning");
@@ -534,11 +612,11 @@
 
         function sendJson(cmd, data = null) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ cmd: cmd, data: data })); }
         function getCheck(id) { return document.getElementById(id).checked; }
-        function setCheck(id, val) { const el = document.getElementById(id); if(el) el.checked = val; }
+        function setCheck(id, val) { const el = document.getElementById(id); if (el) el.checked = val; }
         function getInt(id) { return parseInt(document.getElementById(id).value) || 0; }
-        function setVal(id, val) { const el = document.getElementById(id); if(el) el.value = val; }
+        function setVal(id, val) { const el = document.getElementById(id); if (el) el.value = val; }
         function compactNum(num) { return Intl.NumberFormat('en-US', { notation: "compact", maximumFractionDigits: 1 }).format(num); }
-        function opts(dict, current) { return Object.entries(dict).map(([k,v]) => `<option value="${k}" ${k==current?'selected':''}>${v}</option>`).join(''); }
+        function opts(dict, current) { return Object.entries(dict).map(([k, v]) => `<option value="${k}" ${k == current ? 'selected' : ''}>${v}</option>`).join(''); }
         function toggleTheme() {
             const html = document.querySelector('html');
             html.setAttribute('data-theme', html.getAttribute('data-theme') === 'night' ? 'winter' : 'night');
@@ -546,4 +624,5 @@
         function openConfigModal() { sendJson("get_config"); document.getElementById('config_modal').showModal(); }
     </script>
 </body>
+
 </html>
