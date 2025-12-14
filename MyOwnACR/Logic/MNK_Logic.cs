@@ -1,7 +1,7 @@
 // Archivo: Logic/MNK_Logic.cs
 // Descripción: Lógica de combate Monk completa.
 // AJUSTE: Rango Melee en 3.5f.
-// FIX: Lógica de "Hold" para Phantom Rush. Si Brotherhood está disponible, se pausa el GCD Phantom Rush hasta tirar Brotherhood.
+// FIX: Deadlock de Brotherhood eliminado. Se prioriza el lanzamiento inmediato si está disponible y permitido por Dashboard.
 
 using System;
 using System.Linq;
@@ -193,7 +193,7 @@ namespace MyOwnACR.Logic
             int enemyCount = CombatHelpers.CountAttackableEnemiesInRange(objectTable, player, 5f);
             bool useAoE = operation.AoE_Enabled && enemyCount >= AoE_Threshold;
 
-            var gcdCandidate = GetNextGcdCandidate(am, config, player, useAoE);
+            var gcdCandidate = GetNextGcdCandidate(am, config, player, useAoE, operation); // Pasamos operation para verificar toggle
 
             bool isActionReady = false;
             if (gcdCandidate.HasValue)
@@ -274,7 +274,6 @@ namespace MyOwnACR.Logic
             return 0;
         }
 
-        // ... (Resto de métodos GetBest... iguales) ...
         private static (uint, KeyBind) GetBestOpoAction(bool useAoE, MNKGauge gauge, JobConfig_MNK config, uint level)
         {
             if (useAoE && level >= MNK_Levels.ArmOfTheDestroyer) return (MNK_IDs.ArmOfTheDestroyer, config.ArmOfTheDestroyer);
@@ -345,7 +344,8 @@ namespace MyOwnACR.Logic
             ActionManager* am,
             JobConfig_MNK config,
             IPlayerCharacter player,
-            bool useAoE)
+            bool useAoE,
+            OperationalSettings op)
         {
             var gauge = Plugin.JobGauges.Get<MNKGauge>();
             bool isPerfectBalance = HasStatus(player, MNK_IDs.Status_PerfectBalance);
@@ -358,7 +358,8 @@ namespace MyOwnACR.Logic
                     uint specificBlitzId = GetActiveBlitzId(gauge);
 
                     // --- HOLD LOGIC: PHANTOM RUSH VS BROTHERHOOD ---
-                    if (specificBlitzId == MNK_IDs.PhantomRush)
+                    // Solo aplicamos Hold si el usuario quiere usar Brotherhood desde el Dashboard
+                    if (specificBlitzId == MNK_IDs.PhantomRush && op.UseBrotherhood)
                     {
                         if (player.Level >= MNK_Levels.Brotherhood)
                         {
@@ -367,8 +368,7 @@ namespace MyOwnACR.Logic
                             float bhCD = (bhTotal > 0) ? Math.Max(0, bhTotal - bhElapsed) : 0;
 
                             // Si Brotherhood está listo (CD < 0.6s) y NO está activo:
-                            // Retornamos null. Esto causará que 'Execute' salte la fase GCD y entre en fase oGCD
-                            // para intentar lanzar Brotherhood inmediatamente.
+                            // Devolvemos null para forzar entrada a TryUseOgcd.
                             if (bhCD <= 0.6f && !HasStatus(player, MNK_IDs.Status_Brotherhood))
                             {
                                 return null;
@@ -384,7 +384,6 @@ namespace MyOwnACR.Logic
                 }
             }
 
-            // ... (Resto de la lógica GCD igual) ...
             if (player.Level >= MNK_Levels.PerfectBalance && isPerfectBalance)
             {
                 if (player.Level < MNK_Levels.MasterfulBlitz) return GetBestOpoAction(useAoE, gauge, config, player.Level);
@@ -453,8 +452,8 @@ namespace MyOwnACR.Logic
                 rofComingSoon = true;
             }
 
-            // 1. RIDDLE OF FIRE (Usar Queueing de 0.5s)
-            if (player.Level >= MNK_Levels.RiddleOfFire && CanUseRecast(am, MNK_IDs.RiddleOfFire, Action_Queue_Window))
+            // 1. RIDDLE OF FIRE (Toggle de Dashboard: op.UseRoF)
+            if (op.UseRoF && player.Level >= MNK_Levels.RiddleOfFire && CanUseRecast(am, MNK_IDs.RiddleOfFire, Action_Queue_Window))
             {
                 ExecuteAction(MNK_IDs.RiddleOfFire, config.RiddleOfFire);
                 Plugin.Instance.SendLog("Burst Iniciado: Riddle of Fire");
@@ -462,14 +461,15 @@ namespace MyOwnACR.Logic
             }
 
             // 2. BROTHERHOOD
-            if (player.Level >= MNK_Levels.Brotherhood && CanUseRecast(am, MNK_IDs.Brotherhood, Action_Queue_Window))
+            // FIX CRITICO: Eliminado el 'else if' que dependía estrictamente de rofActive.
+            // Si llegamos a este punto y Brotherhood está listo y habilitado, SE LANZA.
+            // Riddle of Fire ya se intentó lanzar en el paso 1. Si no se lanzó, es porque está en CD o desactivado.
+            // No podemos permitir que Brotherhood se atasque esperando un RoF que no vendrá.
+            if (op.UseBrotherhood && player.Level >= MNK_Levels.Brotherhood && CanUseRecast(am, MNK_IDs.Brotherhood, Action_Queue_Window))
             {
-                if (rofActive || player.Level < MNK_Levels.RiddleOfFire)
-                {
-                    ExecuteAction(MNK_IDs.Brotherhood, config.Brotherhood);
-                    Plugin.Instance.SendLog("Buff Raid: Brotherhood");
-                    return true;
-                }
+                ExecuteAction(MNK_IDs.Brotherhood, config.Brotherhood);
+                Plugin.Instance.SendLog("Buff Raid: Brotherhood (Force)");
+                return true;
             }
 
             // 3. PERFECT BALANCE
@@ -485,7 +485,7 @@ namespace MyOwnACR.Logic
             GetActionCharges(am, MNK_IDs.PerfectBalance, player.Level, out int pbCharges, out int pbMax);
             bool inPB = HasStatus(player, MNK_IDs.Status_PerfectBalance);
 
-            if (player.Level >= MNK_Levels.PerfectBalance && !inPB && pbCharges > 0 && pbSafe)
+            if (op.UsePB && player.Level >= MNK_Levels.PerfectBalance && !inPB && pbCharges > 0 && pbSafe)
             {
                 uint lastAction = am->Combo.Action;
                 bool lastWasOpo = lastAction == MNK_IDs.Bootshine || lastAction == MNK_IDs.DragonKick || lastAction == MNK_IDs.LeapingOpo || lastAction == MNK_IDs.ArmOfTheDestroyer || lastAction == MNK_IDs.ShadowOfTheDestroyer;
@@ -526,14 +526,14 @@ namespace MyOwnACR.Logic
             }
 
             // 4. FORBIDDEN CHAKRA
-            if (player.Level >= MNK_Levels.ForbiddenChakra && gauge.Chakra >= 5 && CanUseRecast(am, MNK_IDs.TheForbiddenChakra, Action_Queue_Window))
+            if (op.UseForbiddenChakra && player.Level >= MNK_Levels.ForbiddenChakra && gauge.Chakra >= 5 && CanUseRecast(am, MNK_IDs.TheForbiddenChakra, Action_Queue_Window))
             {
                 ExecuteAction(MNK_IDs.TheForbiddenChakra, config.ForbiddenChakra);
                 return true;
             }
 
             // 5. RIDDLE OF WIND
-            if (player.Level >= MNK_Levels.RiddleOfWind && rofActive && CanUseRecast(am, MNK_IDs.RiddleOfWind, Action_Queue_Window))
+            if (op.UseRoW && player.Level >= MNK_Levels.RiddleOfWind && rofActive && CanUseRecast(am, MNK_IDs.RiddleOfWind, Action_Queue_Window))
             {
                 ExecuteAction(MNK_IDs.RiddleOfWind, config.RiddleOfWind);
                 return true;
