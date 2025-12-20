@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Project Sdk="Dalamud.NET.Sdk/13.1.0">
+<Project Sdk="Dalamud.NET.Sdk/14.0.0">
     <PropertyGroup>
         <Authors>Astral</Authors>
         <Version>1.0.1.0</Version>
@@ -12,9 +12,7 @@
         <AssemblyName>MyOwnACR</AssemblyName>
         <RootNamespace>MyOwnACR</RootNamespace>
 
-        <!-- FIX CA1416: Especificamos explícitamente que esto corre en Windows -->
-        <!-- FIX CS1705: Actualizado a net9.0-windows para coincidir con las dependencias de Dalamud/FFXIVClientStructs -->
-        <TargetFramework>net9.0-windows</TargetFramework>
+        <TargetFramework>net10.0-windows</TargetFramework>
         <Platforms>x64</Platforms>
     </PropertyGroup>
 

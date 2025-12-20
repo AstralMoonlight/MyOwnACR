@@ -1,7 +1,7 @@
 // Archivo: Logic/MNK_Logic.cs
 // Descripción: Lógica de combate Monk completa.
 // AJUSTE: Rango Melee en 3.5f.
-// FIX: Deadlock de Brotherhood eliminado. Se prioriza el lanzamiento inmediato si está disponible y permitido por Dashboard.
+// FIX: Phantom Rush ahora espera estrictamente el buff de Brotherhood en la ventana de 2 minutos.
 
 using System;
 using System.Linq;
@@ -357,7 +357,7 @@ namespace MyOwnACR.Logic
                 {
                     uint specificBlitzId = GetActiveBlitzId(gauge);
 
-                    // --- HOLD LOGIC: PHANTOM RUSH VS BROTHERHOOD ---
+                    // --- HOLD LOGIC: PHANTOM RUSH VS BROTHERHOOD (FIX 2 MIN ALIGNMENT) ---
                     // Solo aplicamos Hold si el usuario quiere usar Brotherhood desde el Dashboard
                     if (specificBlitzId == MNK_IDs.PhantomRush && op.UseBrotherhood)
                     {
@@ -367,9 +367,13 @@ namespace MyOwnACR.Logic
                             float bhElapsed = am->GetRecastTimeElapsed(ActionType.Action, MNK_IDs.Brotherhood);
                             float bhCD = (bhTotal > 0) ? Math.Max(0, bhTotal - bhElapsed) : 0;
 
-                            // Si Brotherhood está listo (CD < 0.6s) y NO está activo:
-                            // Devolvemos null para forzar entrada a TryUseOgcd.
-                            if (bhCD <= 0.6f && !HasStatus(player, MNK_IDs.Status_Brotherhood))
+                            bool hasBhBuff = HasStatus(player, MNK_IDs.Status_Brotherhood);
+
+                            // FIX: Si NO tenemos el buff activo, PERO el CD es razonablemente corto (< 20s),
+                            // significa que estamos acercándonos o dentro de la ventana de burst de 2 mins.
+                            // Retenemos el GCD (return null) para esperar que el OGCD de Brotherhood se dispare.
+                            // La ventana de 20s es amplia para asegurar la captura, pero evita un bloqueo infinito.
+                            if (!hasBhBuff && bhCD < 20.0f)
                             {
                                 return null;
                             }
@@ -461,10 +465,8 @@ namespace MyOwnACR.Logic
             }
 
             // 2. BROTHERHOOD
-            // FIX CRITICO: Eliminado el 'else if' que dependía estrictamente de rofActive.
-            // Si llegamos a este punto y Brotherhood está listo y habilitado, SE LANZA.
-            // Riddle of Fire ya se intentó lanzar en el paso 1. Si no se lanzó, es porque está en CD o desactivado.
-            // No podemos permitir que Brotherhood se atasque esperando un RoF que no vendrá.
+            // FIX CRITICO: Prioridad alta. Se lanza si está disponible, no depende estrictamente de que RoF esté activo ahora mismo
+            // para evitar deadlock si RoF falló o se desincronizó.
             if (op.UseBrotherhood && player.Level >= MNK_Levels.Brotherhood && CanUseRecast(am, MNK_IDs.Brotherhood, Action_Queue_Window))
             {
                 ExecuteAction(MNK_IDs.Brotherhood, config.Brotherhood);
@@ -508,6 +510,7 @@ namespace MyOwnACR.Logic
                 {
                     if (lastWasOpo)
                     {
+                        // Si tenemos el buff de BH O si BH no está listo para lanzarse pronto, usamos PB.
                         if (HasStatus(player, MNK_IDs.Status_Brotherhood) || !CanUseRecast(am, MNK_IDs.Brotherhood, Action_Queue_Window)) shouldUse = true;
                         else if (pbCharges >= 1) shouldUse = true;
                     }
