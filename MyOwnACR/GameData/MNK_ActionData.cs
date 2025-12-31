@@ -25,7 +25,7 @@ namespace MyOwnACR.GameData
 
             // Blitz / Masterful
             Register(MNK_IDs.MasterfulBlitz, "Masterful Blitz", ActionCooldownType.GCD);
-            Register(MNK_IDs.ElixirField, "Elixir Field", ActionCooldownType.GCD);
+            Register(MNK_IDs.ElixirBurst, "Elixir Burst", ActionCooldownType.GCD);
             Register(MNK_IDs.RisingPhoenix, "Rising Phoenix", ActionCooldownType.GCD);
             Register(MNK_IDs.PhantomRush, "Phantom Rush", ActionCooldownType.GCD);
             Register(MNK_IDs.CelestialRevolution, "Celestial Revolution", ActionCooldownType.GCD);
@@ -35,7 +35,7 @@ namespace MyOwnACR.GameData
             Register(MNK_IDs.WindsReply, "Wind's Reply", ActionCooldownType.GCD);
 
             // Utility GCDs
-            Register(MNK_IDs.Meditation, "Meditation", ActionCooldownType.GCD, 1.0f);
+            Register(MNK_IDs.SteeledMeditation, "SteeledMeditation", ActionCooldownType.GCD, 1.0f);
             Register(MNK_IDs.FormShift, "Form Shift", ActionCooldownType.GCD);
 
 

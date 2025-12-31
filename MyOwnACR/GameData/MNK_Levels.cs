@@ -35,7 +35,7 @@ namespace MyOwnACR.GameData
         public const int SixSidedStar = 80;
         public const int WindsReply = 96;
         public const int FiresReply = 100;
-        
+
 
         // --- Dawntrail Upgrades ---
         public const int LeapingOpo = 92;

@@ -236,6 +236,17 @@
                         <i class="fa-solid fa-sliders"></i> Lógica & Filtros
                     </h3>
                     <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <!-- NUEVO: TOGGLE DE MODO MEMORIA -->
+                        <div
+                            class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3 md:col-span-2 border border-warning/20">
+                            <div class="flex flex-col">
+                                <span class="text-sm font-bold text-warning">Input Híbrido (Memoria)</span>
+                                <span class="text-[0.6rem] opacity-60">Usa ActionManager (Sin teclas)</span>
+                            </div>
+                            <input type="checkbox" class="toggle toggle-sm toggle-warning" id="op_memory"
+                                onchange="updateOps()" />
+                        </div>
+
                         <div class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3">
                             <span class="text-sm font-bold">AoE (Área)</span>
                             <input type="checkbox" class="toggle toggle-sm toggle-info" id="op_aoe"
@@ -387,7 +398,7 @@
 
     <script>
         const HOST = "127.0.0.1:5055";
-        const ws = new WebSocket(`ws://${HOST}`);
+        let ws; // Mover ws a variable global modificable
         let currentConfig = {};
 
         // === DEFINICIONES ===
@@ -416,56 +427,80 @@
             hotkeySelect.appendChild(opt);
         });
 
-        ws.onopen = () => {
-            document.getElementById("connection-status").innerText = "CONECTADO";
-            document.getElementById("connection-status").classList.replace("text-error", "text-success");
-            sendJson("get_config");
-            addLog("Sistema conectado al servidor.");
-        };
+        // NUEVA FUNCIÓN DE CONEXIÓN CON AUTO-RETRY
+        function connect() {
+            ws = new WebSocket(`ws://${HOST}`);
 
-        ws.onclose = () => {
-            document.getElementById("connection-status").innerText = "DESCONECTADO";
-            document.getElementById("connection-status").classList.replace("text-success", "text-error");
-            addLog("Desconectado del servidor.", "text-error");
-        };
+            ws.onopen = () => {
+                document.getElementById("connection-status").innerText = "CONECTADO";
+                document.getElementById("connection-status").classList.replace("text-error", "text-success");
+                document.getElementById("connection-status").classList.replace("text-warning", "text-success");
+                sendJson("get_config");
+                addLog("Sistema conectado al servidor.");
+            };
 
-        ws.onmessage = (e) => {
-            const msg = JSON.parse(e.data);
+            ws.onclose = () => {
+                document.getElementById("connection-status").innerText = "RECONECTANDO...";
+                document.getElementById("connection-status").classList.remove("text-success", "text-error");
+                document.getElementById("connection-status").classList.add("text-warning");
 
-            if (msg.type === "status") updateDashboard(msg.data);
-            if (msg.type === "config_data") loadConfigToUI(msg.data);
+                // Intentar reconectar en 2 segundos
+                setTimeout(connect, 2000);
+            };
 
-            // LÓGICA DE CONSOLA
-            if (msg.type === "log") {
-                addLog(msg.data);
-            }
-        };
+            ws.onerror = (err) => {
+                console.error("WebSocket error:", err);
+                ws.close(); // Forzar cierre para gatillar onclose y reintento
+            };
+
+            ws.onmessage = (e) => {
+                try {
+                    const msg = JSON.parse(e.data);
+
+                    if (msg.type === "status") updateDashboard(msg.data);
+                    if (msg.type === "config_data") loadConfigToUI(msg.data);
+                    if (msg.type === "log") addLog(msg.data);
+                } catch (err) {
+                    console.error("Error parsing message:", err);
+                }
+            };
+        }
+
+        // Iniciar conexión
+        connect();
 
         // === FUNCIONES DE UI ===
         function updateDashboard(d) {
-            if (d.is_running) document.body.classList.add("border-active");
-            else document.body.classList.remove("border-active");
+            try {
+                // Actualizar Borde visual de Estado
+                if (d.is_running) {
+                    document.body.classList.add("border-active");
+                } else {
+                    document.body.classList.remove("border-active");
+                }
 
-            document.getElementById("target").innerText = d.target || "--";
-            const hpPct = d.target_max_hp > 0 ? Math.round((d.target_hp / d.target_max_hp) * 100) : 0;
-            document.getElementById("hp-bar").style.width = hpPct + "%";
-            document.getElementById("hp-text").innerText = hpPct + "%";
-            document.getElementById("hp-abs").innerText = `${compactNum(d.target_hp)}/${compactNum(d.target_max_hp)}`;
+                document.getElementById("target").innerText = d.target || "--";
+                const hpPct = d.target_max_hp > 0 ? Math.round((d.target_hp / d.target_max_hp) * 100) : 0;
+                document.getElementById("hp-bar").style.width = hpPct + "%";
+                document.getElementById("hp-text").innerText = hpPct + "%";
+                document.getElementById("hp-abs").innerText = `${compactNum(d.target_hp)}/${compactNum(d.target_max_hp)}`;
 
-            const nextName = ACTIONS_NAME[d.next_action] || (d.next_action ? "ID " + d.next_action : "...");
-            const comboEl = document.getElementById("combo");
-            comboEl.innerText = (d.next_action) ? nextName : "...";
-            if (d.next_action) comboEl.classList.add("text-primary", "scale-110");
-            else comboEl.classList.remove("text-primary", "scale-110");
+                const nextName = ACTIONS_NAME[d.next_action] || (d.next_action ? "ID " + d.next_action : "...");
+                const comboEl = document.getElementById("combo");
+                comboEl.innerText = (d.next_action) ? nextName : "...";
+                if (d.next_action) comboEl.classList.add("text-primary", "scale-110");
+                else comboEl.classList.remove("text-primary", "scale-110");
 
-            document.querySelectorAll('.btn-force').forEach(btn => {
-                const actionName = btn.getAttribute('data-action');
-                if (actionName === d.queued_action && d.queued_action !== "") btn.classList.add('btn-queued');
-                else btn.classList.remove('btn-queued');
-            });
+                document.querySelectorAll('.btn-force').forEach(btn => {
+                    const actionName = btn.getAttribute('data-action');
+                    if (actionName === d.queued_action && d.queued_action !== "") btn.classList.add('btn-queued');
+                    else btn.classList.remove('btn-queued');
+                });
+            } catch (err) {
+                console.error("Error updating dashboard UI:", err);
+            }
         }
 
-        // AQUÍ ESTÁ LA FUNCIÓN ACTUALIZADA
         function loadConfigToUI(cfg) {
             currentConfig = cfg;
 
@@ -475,6 +510,9 @@
                 setCheck("op_aoe", op.AoE_Enabled); setCheck("op_truenorth", op.TrueNorth_Auto); setCheck("op_savecd", op.SaveCD);
                 setCheck("op_pb", op.UsePB); setCheck("op_rof", op.UseRoF); setCheck("op_bh", op.UseBrotherhood);
                 setCheck("op_row", op.UseRoW); setCheck("op_fc", op.UseForbiddenChakra);
+
+                // NUEVO: Cargar estado de Memory Input
+                setCheck("op_memory", op.UseMemoryInput);
             }
 
             // Configuración Global
@@ -487,7 +525,7 @@
                 setVal("surv_bb", cfg.Survival.MinHp_Bloodbath);
             }
 
-            // Configuración del Monk (MAPEO MEJORADO)
+            // Configuración del Monk
             if (cfg.Monk) {
                 setCheck("weave_double", cfg.Monk.EnableDoubleWeave);
                 setVal("weave_pref", cfg.Monk.SingleWeaveSlotPreference);
@@ -498,16 +536,13 @@
                 const container = document.getElementById("skill-list");
                 container.innerHTML = "";
 
-                // Ordenar las habilidades alfabéticamente
                 const sortedSkills = Object.keys(cfg.Monk).sort();
 
                 sortedSkills.forEach(skill => {
                     const bind = cfg.Monk[skill];
 
-                    // Validamos que sea un objeto de configuración válido (tiene Key y Bar)
                     if (bind && typeof bind.Key !== 'undefined' && typeof bind.Bar !== 'undefined') {
                         const card = document.createElement("div");
-                        // Diseño tipo tarjeta: Fondo oscuro suave, borde sutil
                         card.className = "flex flex-col bg-base-200/50 p-2 rounded-lg border border-base-content/5 hover:border-base-content/20 transition-colors";
 
                         card.innerHTML = `
@@ -592,7 +627,8 @@
 
         function toggleBot(state) {
             sendJson(state ? 'START' : 'STOP');
-            addLog(state ? "Bot INICIADO" : "Bot DETENIDO", state ? "text-success font-bold" : "text-error font-bold");
+            // Nota: El log "Bot INICIADO" se confirma cuando el plugin manda el estado, 
+            // pero lo ponemos aquí para feedback inmediato.
         }
         function forceAction(btn) {
             if (navigator.vibrate) navigator.vibrate(50);
@@ -604,16 +640,23 @@
             const data = {
                 AoE_Enabled: getCheck("op_aoe"), TrueNorth_Auto: getCheck("op_truenorth"), SaveCD: getCheck("op_savecd"),
                 UsePB: getCheck("op_pb"), UseRoF: getCheck("op_rof"), UseBrotherhood: getCheck("op_bh"),
-                UseRoW: getCheck("op_row"), UseForbiddenChakra: getCheck("op_fc")
+                UseRoW: getCheck("op_row"), UseForbiddenChakra: getCheck("op_fc"),
+                UseMemoryInput: getCheck("op_memory")
             };
             sendJson("save_operation", data);
             addLog("Ajustes operativos actualizados");
         }
 
-        function sendJson(cmd, data = null) { if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ cmd: cmd, data: data })); }
-        function getCheck(id) { return document.getElementById(id).checked; }
+        function sendJson(cmd, data = null) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ cmd: cmd, data: data }));
+            } else {
+                addLog("Error: No hay conexión con el Plugin", "text-error");
+            }
+        }
+        function getCheck(id) { const el = document.getElementById(id); return el ? el.checked : false; }
         function setCheck(id, val) { const el = document.getElementById(id); if (el) el.checked = val; }
-        function getInt(id) { return parseInt(document.getElementById(id).value) || 0; }
+        function getInt(id) { const el = document.getElementById(id); return el ? (parseInt(el.value) || 0) : 0; }
         function setVal(id, val) { const el = document.getElementById(id); if (el) el.value = val; }
         function compactNum(num) { return Intl.NumberFormat('en-US', { notation: "compact", maximumFractionDigits: 1 }).format(num); }
         function opts(dict, current) { return Object.entries(dict).map(([k, v]) => `<option value="${k}" ${k == current ? 'selected' : ''}>${v}</option>`).join(''); }

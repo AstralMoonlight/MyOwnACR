@@ -4,85 +4,70 @@ namespace MyOwnACR.GameData
     {
         // =========================================================================
         // 1. COMBO SINGLE TARGET (GCD)
-        // Usa siempre la ID Base; el juego la actualiza sola.
         // =========================================================================
+        public const uint Bootshine = 53;         // -> Leaping Opo (36945)
+        public const uint DragonKick = 74;
+        public const uint TrueStrike = 54;        // -> Rising Raptor (36946)
+        public const uint TwinSnakes = 61;
+        public const uint SnapPunch = 56;         // -> Pouncing Coeurl (36947)
+        public const uint Demolish = 66;
 
-        // Forma 1 (Opo-Opo)
-        public const uint Bootshine = 53;    // Nv 100: Leaping Opo
-        public const uint LeapingOpo = 36945; //(Evolución de Bootshine)
-        public const uint DragonKick = 74;    // (Opo-Opo alternativo)
-
-        // Forma 2 (Raptor)
-        public const uint TrueStrike = 54;    // Nv 100: Rising Raptor
-        public const uint TwinSnakes = 61;    // Nv 100: Rising Raptor (Buff de daño)
-        public const uint RisingRaptor = 36946; //(Evolución de True Strike / Twin Snakes)
-
-        // Forma 3 (Coeurl)
-        public const uint SnapPunch = 56;    // Nv 100: Pouncing Coeurl
-        public const uint Demolish = 66;    // Nv 100: Pouncing Coeurl (DoT)
-        public const uint PouncingCoeurl = 36947; //(Evolución de Snap Punch / Demolish)
+        // IDs Evolucionados (Solo referencia, el juego ajusta)
+        public const uint LeapingOpo = 36945;
+        public const uint RisingRaptor = 36946;
+        public const uint PouncingCoeurl = 36947;
 
         // =========================================================================
         // 2. COMBO AOE (GCD)
         // =========================================================================
-        public const uint ArmOfTheDestroyer = 62;    // Nv 82: Shadow of the Destroyer (Forma 1)
-        public const uint FourPointFury = 16473; // (Forma 2)
-        public const uint Rockbreaker = 70;    // (Forma 3)
+        public const uint ArmOfTheDestroyer = 62;      // -> Shadow of the Destroyer (25767)
+        public const uint FourPointFury = 16473;
+        public const uint Rockbreaker = 70;
         public const uint ShadowOfTheDestroyer = 25767;
 
         // =========================================================================
-        // 3. MASTERFUL BLITZ (GCD Especial)
-        // El juego usa una ID genérica para el botón, y IDs específicas para el ataque.
-        // Normalmente basta con presionar la Genérica (25764).
+        // 3. MASTERFUL BLITZ
         // =========================================================================
-        public const uint MasterfulBlitz = 25764; // El botón que presionas
+        public const uint MasterfulBlitz = 25764; // Botón Genérico -> Se transforma en todo
 
-        // IDs de los ataques reales (útil si quieres leer cuál va a salir)
-        public const uint ElixirField = 25765; // Lunar Nadi
-        public const uint RisingPhoenix = 25768; // Solar Nadi
-        public const uint PhantomRush = 25763; // Solar + Lunar (El más fuerte)
-        public const uint CelestialRevolution = 25761; // El ataque de "fallaste el combo"
-
-        // =========================================================================
-        // 4. OFF-GLOBALS (OGCD) - Daño y Utilidad
-        // =========================================================================
-
-        // Chakras
-        public const uint TheForbiddenChakra = 3547;  // Single Target (5 Chakras)
-        public const uint Enlightenment = 16474; // AoE (5 Chakras)
-        public const uint Meditation = 3546;  // Cargar Chakra (fuera de combate)
-        public const uint InCombatMeditation = 36970; // (Steeled Meditation)
-
-        // Cooldowns de Daño (Buffs)
-        public const uint RiddleOfFire = 7395;  // +Daño propio
-        public const uint Brotherhood = 7396;  // +Daño Party + Generación Chakra
-        public const uint RiddleOfWind = 25766; // +Velocidad auto-ataque
-
-        // Follow-ups de Dawntrail (Nuevos Nivel 100)
-        // Estos se activan tras usar los Riddles
-        public const uint FiresReply = 36972; // Ataque tras Riddle of Fire
-        public const uint WindsReply = 36971; // Ataque tras Riddle of Wind
-
-        // Utilidad / Defensivos
-        public const uint PerfectBalance = 69;    // Permite usar cualquier forma (3 stacks)
-        public const uint RiddleOfEarth = 7394;  // Reducción de daño + Cura
-        public const uint Mantra = 65;    // Aumenta curación recibida
-        public const uint Thunderclap = 25762; // Dash (Acercarse al enemigo/aliado)
-        public const uint FormShift = 4262;  // Mantener forma fuera de combate
-        public const uint SixSidedStar = 16476; // GCD de salida (da velocidad de movimiento)
+        // IDs Reales de Blitz (Referencias)
+        //public const uint ElixirField = 25765;
+        public const uint RisingPhoenix = 25768;
+        public const uint PhantomRush = 25769;
+        public const uint ElixirBurst = 36948;
+        public const uint CelestialRevolution = 25765;
 
         // =========================================================================
-        // 5. ROLE ACTIONS (Comunes a todos los Melee)
+        // 4. OFF-GLOBALS (OGCD)
         // =========================================================================
-        //public const uint SecondWind = 7541;  // Autocura instantánea
-        //public const uint LegSweep = 7540;  // Stun
-        //public const uint Bloodbath = 7542;  // Robo de vida al pegar
-        //public const uint Feint = 7549;  // Reducir daño físico del boss
-        //public const uint ArmsLength = 7548;  // Anti-empuje
-        //public const uint TrueNorth = 7546;  // Ignorar posicionales
+
+        // CHAKRAS
+        // CORRECCIÓN CRÍTICA: ID Base para "Meditation" a nivel alto no es 3546.
+        // Según tu log es 36942 (Forbidden Meditation).
+        // Usaremos 3546 como fallback, pero la lógica priorizará el ajustado.
+        public const uint SteeledMeditation = 36940;
+        public const uint ForbiddenMeditation = 36942; // ID Base real a nivel alto
+
+        public const uint TheForbiddenChakra = 3547;   // Ataque (5 Stacks)
+        public const uint Enlightenment = 16474;       // AoE (5 Stacks)
+
+        // BUFFS
+        public const uint RiddleOfFire = 7395;
+        public const uint Brotherhood = 7396;
+        public const uint RiddleOfWind = 25766;
+        public const uint PerfectBalance = 69;
+        public const uint RiddleOfEarth = 7394;
+        public const uint Mantra = 65;
+        public const uint FormShift = 4262;
+        public const uint Thunderclap = 25762;
+        public const uint SixSidedStar = 16476;
+
+        // FOLLOW-UPS (Nivel 100)
+        public const uint FiresReply = 36950; // Corregido según log (36972 era incorrecto?)
+        public const uint WindsReply = 36949; // Corregido según log (36971 era incorrecto?)
 
         // =========================================================================
-        // STATUSES (BUFFS) - ushort
+        // STATUSES
         // =========================================================================
         public const ushort Status_PerfectBalance = 110;
         public const ushort Status_RiddleOfFire = 1181;
@@ -91,8 +76,7 @@ namespace MyOwnACR.GameData
         public const ushort Status_OpoOpoForm = 107;
         public const ushort Status_RaptorForm = 108;
         public const ushort Status_CoeurlForm = 109;
-        public const ushort Status_FiresRumination = 3843; // Buff para usar Fire's Reply
-        public const ushort Status_WindsRumination = 3842; // Buff para usar Wind's Reply
-        //public const ushort Status_TrueNorth = 1250;
+        public const ushort Status_FiresRumination = 3843;
+        public const ushort Status_WindsRumination = 3842;
     }
 }
