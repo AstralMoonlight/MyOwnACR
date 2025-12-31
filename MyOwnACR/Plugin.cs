@@ -108,6 +108,15 @@ namespace MyOwnACR
             Config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
             Config.Initialize(PluginInterface);
 
+            // === INICIALIZACIÓN DE OPENERS ===
+            // Obtenemos la ruta donde vive la DLL compilada (bin/Debug/...)
+            string assemblyDir = PluginInterface.AssemblyLocation.DirectoryName!;
+
+            // Le decimos al Manager que busque en esa carpeta
+            Logic.OpenerManager.Instance.LoadOpeners(assemblyDir);
+            // =================================
+
+
             // INICIALIZACIÓN CENTRALIZADA DE DATOS DE JUEGO (GameData)
             try
             {
@@ -572,6 +581,12 @@ namespace MyOwnACR
                     var newOp = cmd["data"]?.ToObject<OperationalSettings>();
                     if (newOp != null) { Config.Operation = newOp; Config.Save(); }
                     FocusGame();
+                }
+                else if (type == "get_openers")
+                {
+                    // Enviar lista de archivos JSON encontrados al Dashboard
+                    var list = Logic.OpenerManager.Instance.GetOpenerNames();
+                    _ = SendJsonAsync("opener_list", list);
                 }
             }
             catch (Exception ex)

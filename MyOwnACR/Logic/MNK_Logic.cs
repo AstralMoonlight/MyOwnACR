@@ -1,6 +1,6 @@
 // Archivo: Logic/MNK_Logic.cs
 // Descripción: Lógica de combate Monk completa.
-// VERSION: Production Ready + Memory Input + Strict Validations (Opo-Opo check).
+// VERSION: Production Ready + Fix Scope Variables (now, actionId).
 
 using System;
 using System.Linq;
@@ -26,7 +26,7 @@ namespace MyOwnACR.Logic
 
         private const float MeleeRange = 3.5f;
         private const int AoE_Threshold = 3;
-        private static float Action_Queue_Window = 0.6f;
+        private static float Action_Queue_Window = 0.6f; 
         private static float RoF_Prepop_Window = 6.0f;
 
         private static DateTime LastAnyActionTime = DateTime.MinValue;
@@ -35,6 +35,9 @@ namespace MyOwnACR.Logic
 
         private static bool LastActionWasGCD = true;
         private static int OgcdCount = 0;
+
+        // Estado para detectar entrada en combate (Auto-Start Opener)
+        private static bool WasInCombat = false; 
 
         public static uint LastProposedAction = 0;
         private static string QueuedManualAction = "";
@@ -50,10 +53,10 @@ namespace MyOwnACR.Logic
         // EJECUCIÓN CENTRALIZADA (TECLADO VS MEMORIA)
         // =========================================================================
         private unsafe static void ExecuteAction(
-            ActionManager* am,
-            uint actionId,
-            KeyBind keyBind,
-            ulong targetId,
+            ActionManager* am, 
+            uint actionId, 
+            KeyBind? keyBind, 
+            ulong targetId, 
             bool useMemory)
         {
             bool isGCD = ActionLibrary.IsGCD(actionId);
@@ -63,7 +66,7 @@ namespace MyOwnACR.Logic
                 // MODO MEMORIA: Inyección directa
                 am->UseAction(ActionType.Action, actionId, targetId);
             }
-            else
+            else if (keyBind != null)
             {
                 // MODO TECLADO: Simulación
                 PressBind(keyBind, isGCD);
@@ -85,7 +88,7 @@ namespace MyOwnACR.Logic
         }
 
         // =========================================================================
-        // EXECUTE
+        // EXECUTE (Main Loop)
         // =========================================================================
         public unsafe static void Execute(
             ActionManager* am,
@@ -96,10 +99,46 @@ namespace MyOwnACR.Logic
         {
             if (am == null || player == null || config == null) return;
 
+            // FIX: Definir 'now' al principio para evitar errores CS0103
+            var now = DateTime.Now;
+
+            // Datos de contexto
             ulong targetId = (player.TargetObject != null) ? player.TargetObject.GameObjectId : player.GameObjectId;
             bool useMem = operation.UseMemoryInput;
+            bool inCombat = Plugin.Condition?[ConditionFlag.InCombat] ?? false;
 
-            // 1. MANUAL
+            // ---------------------------------------------------------------------
+            // 0. AUTO-START OPENER (Solo al transicionar a combate)
+            // ---------------------------------------------------------------------
+            if (inCombat && !WasInCombat)
+            {
+                if (operation.UseOpener && !string.IsNullOrEmpty(operation.SelectedOpener) && operation.SelectedOpener != "Ninguno")
+                {
+                    OpenerManager.Instance.SelectOpener(operation.SelectedOpener);
+                    OpenerManager.Instance.Start();
+                }
+            }
+            WasInCombat = inCombat; // Actualizar estado
+
+            // ---------------------------------------------------------------------
+            // 1. EJECUCIÓN DE OPENER (Prioridad Absoluta)
+            // ---------------------------------------------------------------------
+            if (OpenerManager.Instance.IsRunning)
+            {
+                var (opActionId, opBind) = OpenerManager.Instance.GetNextAction(am, player, config);
+                
+                if (opActionId != 0)
+                {
+                    ExecuteAction(am, opActionId, opBind, targetId, useMem);
+                    return; 
+                }
+                
+                if (OpenerManager.Instance.IsRunning) return;
+            }
+
+            // ---------------------------------------------------------------------
+            // 2. MANUAL QUEUE
+            // ---------------------------------------------------------------------
             if (!string.IsNullOrEmpty(QueuedManualAction))
             {
                 KeyBind? bindToPress = null;
@@ -125,25 +164,30 @@ namespace MyOwnACR.Logic
                 return;
             }
 
+            // Resetear propuesta
             LastProposedAction = 0;
-            var now = DateTime.Now;
 
-            // 2. WEAVE TIMING
+            // ---------------------------------------------------------------------
+            // 3. CONTROL DE TIEMPOS (Weave Window)
+            // ---------------------------------------------------------------------
             int requiredDelay;
             if (LastActionWasGCD) requiredDelay = config.WeaveDelay_oGCD1_MS;
             else requiredDelay = config.WeaveDelay_oGCD2_MS;
 
             if ((now - LastAnyActionTime).TotalMilliseconds < (requiredDelay - (Action_Queue_Window * 1000))) return;
 
-            bool inCombat = Plugin.Condition?[ConditionFlag.InCombat] ?? false;
             var target = player.TargetObject;
             bool hasTarget = target != null && target.IsValid();
             bool inRange = hasTarget && IsInMeleeRange(player);
 
-            // 3. DOWNTIME
+            // ---------------------------------------------------------------------
+            // 4. DOWNTIME / FUERA DE RANGO
+            // ---------------------------------------------------------------------
             if (!inCombat || !inRange)
             {
                 if (!inCombat) OgcdCount = 0;
+                
+                // Carga de Chakra
                 if (player.Level >= MNK_Levels.Meditation)
                 {
                     var gauge = Plugin.JobGauges.Get<MNKGauge>();
@@ -154,7 +198,22 @@ namespace MyOwnACR.Logic
                     }
                 }
 
-                // Mantenimiento de formas
+                // Replies de Rango
+                if (hasTarget && inCombat)
+                {
+                    if (HasStatus(player, MNK_IDs.Status_FiresRumination) && CanUseRecast(am, MNK_IDs.FiresReply))
+                    {
+                        ExecuteAction(am, MNK_IDs.FiresReply, config.FiresReply, targetId, useMem);
+                        return;
+                    }
+                    if (HasStatus(player, MNK_IDs.Status_WindsRumination) && CanUseRecast(am, MNK_IDs.WindsReply))
+                    {
+                        ExecuteAction(am, MNK_IDs.WindsReply, config.WindsReply, targetId, useMem);
+                        return;
+                    }
+                }
+
+                // Form Shift
                 bool hasAnyForm = HasStatus(player, MNK_IDs.Status_OpoOpoForm) ||
                                   HasStatus(player, MNK_IDs.Status_RaptorForm) ||
                                   HasStatus(player, MNK_IDs.Status_CoeurlForm) ||
@@ -171,7 +230,9 @@ namespace MyOwnACR.Logic
                 return;
             }
 
-            // 4. COMBAT ROTATION
+            // ---------------------------------------------------------------------
+            // 5. ROTACIÓN DE COMBATE (GCD)
+            // ---------------------------------------------------------------------
             int enemyCount = CombatHelpers.CountAttackableEnemiesInRange(objectTable, player, 5f);
             bool useAoE = operation.AoE_Enabled && enemyCount >= AoE_Threshold;
 
@@ -180,9 +241,11 @@ namespace MyOwnACR.Logic
             bool isActionReady = false;
             if (gcdCandidate.HasValue)
             {
-                uint actionId = gcdCandidate.Value.actionId;
-                if (IsBlitz(actionId)) actionId = MNK_IDs.MasterfulBlitz;
-                isActionReady = CanUseRecast(am, actionId, Action_Queue_Window);
+                // FIX CS0103: Definimos variable local para este bloque
+                uint checkId = gcdCandidate.Value.actionId;
+                if (IsBlitz(checkId)) checkId = MNK_IDs.MasterfulBlitz;
+                
+                isActionReady = CanUseRecast(am, checkId, Action_Queue_Window);
             }
 
             if (isActionReady && gcdCandidate.HasValue)
@@ -194,6 +257,7 @@ namespace MyOwnACR.Logic
                     {
                         if (!HasStatus(player, Melee_IDs.Status_TrueNorth))
                         {
+                            // FIX CS0103: Usamos gcdCandidate.Value.actionId directamente
                             uint id = gcdCandidate.Value.actionId;
                             Position neededPos = Position.Unknown;
                             if (id == MNK_IDs.Demolish) neededPos = Position.Rear;
@@ -216,7 +280,9 @@ namespace MyOwnACR.Logic
                 return;
             }
 
-            // 6. OGCD LOGIC
+            // ---------------------------------------------------------------------
+            // 6. ROTACIÓN DE COMBATE (OGCD)
+            // ---------------------------------------------------------------------
             int maxWeaves = config.EnableDoubleWeave ? 2 : 1;
             float gcdTotal = am->GetRecastTime(FFXIVClientStructs.FFXIV.Client.Game.ActionType.Action, 11);
             float gcdElapsed = am->GetRecastTimeElapsed(FFXIVClientStructs.FFXIV.Client.Game.ActionType.Action, 11);
@@ -224,7 +290,7 @@ namespace MyOwnACR.Logic
 
             bool isHolding = (gcdRemaining <= 0.01f && !isActionReady);
 
-            if (isHolding) OgcdCount = 0; // Reset forzado en Hold para spamear OGCD
+            if (isHolding) OgcdCount = 0; // Anti-Deadlock
 
             if (OgcdCount < maxWeaves || isHolding)
             {
@@ -335,19 +401,13 @@ namespace MyOwnACR.Logic
             var gauge = Plugin.JobGauges.Get<MNKGauge>();
             bool isPerfectBalance = HasStatus(player, MNK_IDs.Status_PerfectBalance);
 
-            // Detectar último GCD usado (Combo Action)
-            // Importante: Esto retorna el ID de la acción que *inició* el combo actual.
             uint lastAction = am->Combo.Action;
-
-            // Validar si la última acción fue realmente una de Opo-Opo.
-            // Esto es crucial para FiresReply, WindsReply y Perfect Balance.
             bool lastWasOpo = lastAction == MNK_IDs.Bootshine ||
                               lastAction == MNK_IDs.DragonKick ||
                               lastAction == MNK_IDs.LeapingOpo ||
                               lastAction == MNK_IDs.ArmOfTheDestroyer ||
                               lastAction == MNK_IDs.ShadowOfTheDestroyer;
 
-            // --- BLITZ LOGIC ---
             if (player.Level >= MNK_Levels.MasterfulBlitz)
             {
                 int realChakraCount = gauge.BeastChakra.Count(c => c != BeastChakra.None);
@@ -355,25 +415,7 @@ namespace MyOwnACR.Logic
                 {
                     uint specificBlitzId = GetActiveBlitzId(gauge);
 
-                    // LOGICA DE RETENCIÓN DE BLITZ (HOLD)
-                    // Si RoF no está activo y le falta poco (ej. < 20s), guardar el Blitz.
-                    if (op.UseRoF && player.Level >= MNK_Levels.RiddleOfFire)
-                    {
-                        bool rofActive = HasStatus(player, MNK_IDs.Status_RiddleOfFire);
-                        float rofTotal = am->GetRecastTime(ActionType.Action, MNK_IDs.RiddleOfFire);
-                        float rofElapsed = am->GetRecastTimeElapsed(ActionType.Action, MNK_IDs.RiddleOfFire);
-                        float rofCD = (rofTotal > 0) ? Math.Max(0, rofTotal - rofElapsed) : 0;
-
-                        // Si RoF viene pronto (<15s) y no lo tenemos activo, NO gastar el Blitz.
-                        if (!rofActive && rofCD < 15.0f)
-                        {
-                            // A menos que sea Phantom Rush y estemos esperando Brotherhood (manejado abajo)
-                            // Pero en general, no queremos gastar un Rising Phoenix justo antes de RoF.
-                            return null;
-                        }
-                    }
-
-                    // Lógica específica de Phantom Rush vs Brotherhood
+                    // HOLD LOGIC
                     if (specificBlitzId == MNK_IDs.PhantomRush && op.UseBrotherhood)
                     {
                         if (player.Level >= MNK_Levels.Brotherhood)
@@ -381,7 +423,6 @@ namespace MyOwnACR.Logic
                             float bhTotal = am->GetRecastTime(ActionType.Action, MNK_IDs.Brotherhood);
                             float bhElapsed = am->GetRecastTimeElapsed(ActionType.Action, MNK_IDs.Brotherhood);
                             float bhCD = (bhTotal > 0) ? Math.Max(0, bhTotal - bhElapsed) : 0;
-
                             bool hasBhBuff = HasStatus(player, MNK_IDs.Status_Brotherhood);
 
                             if (!hasBhBuff && bhCD < 15.0f) return null;
@@ -390,12 +431,11 @@ namespace MyOwnACR.Logic
                     }
 
                     if (specificBlitzId == MNK_IDs.RisingPhoenix) return (specificBlitzId, config.RisingPhoenix);
-                    if (specificBlitzId == MNK_IDs.ElixirBurst) return (specificBlitzId, config.ElixirField);
+                    if (specificBlitzId == MNK_IDs.ElixirBurst) return (specificBlitzId, config.ElixirBurst);
                     return (specificBlitzId, config.MasterfulBlitz);
                 }
             }
 
-            // --- PERFECT BALANCE ---
             if (player.Level >= MNK_Levels.PerfectBalance && isPerfectBalance)
             {
                 if (player.Level < MNK_Levels.MasterfulBlitz) return GetBestOpoAction(useAoE, gauge, config, player.Level);
@@ -416,23 +456,18 @@ namespace MyOwnACR.Logic
                 }
             }
 
-            // --- REPLIES (Fires/Winds) ---
-            // CORREGIDO: Solo usar si el último GCD fue Opo-Opo (combo check) O si el buff se va a acabar.
+            // REPLIES
             if (HasStatus(player, MNK_IDs.Status_FiresRumination))
             {
                 float timeLeft = GetStatusTime(player, MNK_IDs.Status_FiresRumination);
-                // Si me queda poco tiempo (< 3s), úsalo ya. Si no, espera a Opo-Opo.
-                if (lastWasOpo || timeLeft < 3.0f)
-                    return (MNK_IDs.FiresReply, config.FiresReply);
+                if (lastWasOpo || timeLeft < 3.0f) return (MNK_IDs.FiresReply, config.FiresReply);
             }
             if (HasStatus(player, MNK_IDs.Status_WindsRumination))
             {
                 float timeLeft = GetStatusTime(player, MNK_IDs.Status_WindsRumination);
-                if (lastWasOpo || timeLeft < 3.0f)
-                    return (MNK_IDs.WindsReply, config.WindsReply);
+                if (lastWasOpo || timeLeft < 3.0f) return (MNK_IDs.WindsReply, config.WindsReply);
             }
 
-            // --- COMBO ESTÁNDAR ---
             bool isFormless = HasStatus(player, MNK_IDs.Status_FormlessFist);
             if (isFormless) return GetBestOpoAction(useAoE, gauge, config, player.Level);
 
@@ -445,7 +480,7 @@ namespace MyOwnACR.Logic
         }
 
         // =========================================================================
-        // SELECCIÓN DE OGCD
+        // SELECCIÓN DE OGCD (Con Validaciones Estrictas)
         // =========================================================================
         private unsafe static bool TryUseOgcd(
             ActionManager* am,
@@ -464,12 +499,16 @@ namespace MyOwnACR.Logic
             float rofCD = (rofTotal > 0) ? Math.Max(0, rofTotal - rofElapsed) : 0;
 
             bool rofActive = HasStatus(player, MNK_IDs.Status_RiddleOfFire);
+            float rofRemains = 0f;
+            if (rofActive) rofRemains = GetStatusTime(player, MNK_IDs.Status_RiddleOfFire);
+
             bool rofComingSoon = rofCD < RoF_Prepop_Window;
 
             if (player.Level < MNK_Levels.RiddleOfFire)
             {
                 rofActive = true;
                 rofComingSoon = true;
+                rofRemains = 999f;
             }
 
             // 1. RIDDLE OF FIRE
@@ -490,54 +529,63 @@ namespace MyOwnACR.Logic
             }
 
             // 3. PERFECT BALANCE
-            // Necesitamos verificar si el último golpe fue Opo para optimizar el uso de PB
-            uint lastAction = am->Combo.Action;
-            bool lastWasOpo = lastAction == MNK_IDs.Bootshine ||
-                              lastAction == MNK_IDs.DragonKick ||
-                              lastAction == MNK_IDs.LeapingOpo ||
-                              lastAction == MNK_IDs.ArmOfTheDestroyer ||
-                              lastAction == MNK_IDs.ShadowOfTheDestroyer;
-
             bool pbSafe = (DateTime.Now - LastPBTime).TotalSeconds > 2.5;
+
             int rawNadi = (int)gauge.Nadi;
             bool hasLunar = (rawNadi & 1) != 0;
             bool hasSolar = (rawNadi & 2) != 0;
-            bool isOpener = !hasLunar && !hasSolar;
-
-            if (player.Level < MNK_Levels.MasterfulBlitz) isOpener = false;
-            if (isOpener) pbSafe = true;
+            bool nadisEmpty = !hasLunar && !hasSolar;
 
             GetActionCharges(am, MNK_IDs.PerfectBalance, player.Level, out int pbCharges, out int pbMax);
+
+            // True Opener: Nadis vacíos + PB lleno + RoF listo
+            bool isResourceRich = (pbCharges == pbMax) && CanUseRecast(am, MNK_IDs.RiddleOfFire, 10.0f);
+            bool isTrueOpener = nadisEmpty && isResourceRich;
+
+            if (player.Level < MNK_Levels.MasterfulBlitz) isTrueOpener = false;
+            if (isTrueOpener) pbSafe = true;
+
             bool inPB = HasStatus(player, MNK_IDs.Status_PerfectBalance);
 
             if (op.UsePB && player.Level >= MNK_Levels.PerfectBalance && !inPB && pbCharges > 0 && pbSafe)
             {
+                uint lastAction = am->Combo.Action;
+                bool lastWasOpo = lastAction == MNK_IDs.Bootshine || 
+                                  lastAction == MNK_IDs.DragonKick || 
+                                  lastAction == MNK_IDs.LeapingOpo || 
+                                  lastAction == MNK_IDs.ArmOfTheDestroyer || 
+                                  lastAction == MNK_IDs.ShadowOfTheDestroyer;
+
                 bool shouldUse = false;
 
-                if (isOpener)
+                if (isTrueOpener)
                 {
-                    // En el opener, PB suele usarse después del primer Opo (Dragon Kick/Twin Snakes/Demolish/Bootshine)
-                    // Para simplificar, permitimos si lastWasOpo es true.
                     if (lastWasOpo) shouldUse = true;
                 }
                 else if (rofComingSoon && rofCD > 0)
                 {
-                    // Pre-pop para burst
                     if (lastWasOpo) shouldUse = true;
                 }
                 else if (rofActive)
                 {
-                    // Burst window
-                    if (lastWasOpo)
+                    // FIX: Verificar tiempo restante del buff (> 4s)
+                    // Si queda poco tiempo de buff, no iniciamos PB para no perder el blitz.
+                    if (rofRemains > 6.0f) 
                     {
-                        if (HasStatus(player, MNK_IDs.Status_Brotherhood) || !CanUseRecast(am, MNK_IDs.Brotherhood, Action_Queue_Window)) shouldUse = true;
-                        else if (pbCharges >= 1) shouldUse = true;
+                        if (lastWasOpo)
+                        {
+                            if (HasStatus(player, MNK_IDs.Status_Brotherhood) || !CanUseRecast(am, MNK_IDs.Brotherhood, Action_Queue_Window)) 
+                                shouldUse = true;
+                            else if (pbCharges >= 1) 
+                                shouldUse = true;
+                        }
                     }
                 }
                 else if (pbCharges == pbMax)
                 {
-                    // Evitar overcap, pero solo si estamos "limpios" (tras opo) y no vamos a arruinar el burst inminente
-                    if (rofCD > 10.0f && !rofActive && lastWasOpo) shouldUse = true;
+                    // Overcap: Solo si RoF está lejos (>30s)
+                    if (rofCD > 30.0f && !rofActive && lastWasOpo) 
+                        shouldUse = true;
                 }
 
                 if (shouldUse)

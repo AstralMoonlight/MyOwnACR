@@ -53,7 +53,7 @@ namespace MyOwnACR.JobConfigs
         // Blitz Keys: Todas apuntan a la misma tecla física (donde tengas el botón de Blitz),
         // pero necesitamos propiedades separadas para la lógica interna.
         public KeyBind MasterfulBlitz = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl);
-        public KeyBind ElixirField = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl);
+        public KeyBind ElixirBurst = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl);
         public KeyBind RisingPhoenix = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl);
         public KeyBind PhantomRush = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl);
         public KeyBind CelestialRevolution = new KeyBind(Keys.E, HotbarType.Barra2_Ctrl);

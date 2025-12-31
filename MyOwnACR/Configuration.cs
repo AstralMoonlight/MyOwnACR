@@ -41,6 +41,10 @@ namespace MyOwnACR
         public bool UseRoW { get; set; } = true;
         public bool UseBrotherhood { get; set; } = true;
         public bool UseForbiddenChakra { get; set; } = true;
+
+        // --- CONFIGURACIÓN DE OPENER ---
+        public bool UseOpener { get; set; } = false;
+        public string SelectedOpener { get; set; } = "Ninguno";
     }
 
     /// <summary>

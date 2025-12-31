@@ -182,6 +182,31 @@
                         onchange="updateOps()" />
                 </label>
             </div>
+
+            <div class="card bg-base-100 shadow-sm border border-primary/20">
+                <div class="card-body p-4">
+                    <h3 class="text-xs font-black opacity-50 uppercase mb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-rocket text-primary"></i> Opener Configuration
+                    </h3>
+
+                    <div class="form-control mb-2">
+                        <label class="label cursor-pointer justify-between bg-base-200 rounded-lg px-3 py-2">
+                            <span class="label-text font-bold">Auto-Start en Combate</span>
+                            <input type="checkbox" class="toggle toggle-primary toggle-sm" id="op_useopener"
+                                onchange="updateOps()" />
+                        </label>
+                    </div>
+
+                    <div class="form-control">
+                        <label class="label"><span class="label-text text-xs">Perfil Seleccionado</span></label>
+                        <select id="opener_select" class="select select-sm select-bordered w-full font-mono text-xs"
+                            onchange="updateOps()">
+                            <option value="Ninguno">Ninguno</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
         </div>
 
         <div class="lg:col-span-8 space-y-4">
@@ -236,7 +261,6 @@
                         <i class="fa-solid fa-sliders"></i> Lógica & Filtros
                     </h3>
                     <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
-                        <!-- NUEVO: TOGGLE DE MODO MEMORIA -->
                         <div
                             class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3 md:col-span-2 border border-warning/20">
                             <div class="flex flex-col">
@@ -435,7 +459,11 @@
                 document.getElementById("connection-status").innerText = "CONECTADO";
                 document.getElementById("connection-status").classList.replace("text-error", "text-success");
                 document.getElementById("connection-status").classList.replace("text-warning", "text-success");
+
+                // Pedimos Configuración y Lista de Openers al conectar
                 sendJson("get_config");
+                sendJson("get_openers");
+
                 addLog("Sistema conectado al servidor.");
             };
 
@@ -460,6 +488,7 @@
                     if (msg.type === "status") updateDashboard(msg.data);
                     if (msg.type === "config_data") loadConfigToUI(msg.data);
                     if (msg.type === "log") addLog(msg.data);
+                    if (msg.type === "opener_list") loadOpenerList(msg.data); // CARGAR LISTA
                 } catch (err) {
                     console.error("Error parsing message:", err);
                 }
@@ -513,6 +542,12 @@
 
                 // NUEVO: Cargar estado de Memory Input
                 setCheck("op_memory", op.UseMemoryInput);
+
+                // NUEVO: Cargar estado de Opener
+                setCheck("op_useopener", op.UseOpener);
+                // Intentar setear el valor si la lista ya cargó, sino se seteará en loadOpenerList
+                const sel = document.getElementById("opener_select");
+                if (sel && op.SelectedOpener) sel.value = op.SelectedOpener;
             }
 
             // Configuración Global
@@ -563,6 +598,23 @@
                     }
                 });
             }
+        }
+
+        function loadOpenerList(list) {
+            const sel = document.getElementById("opener_select");
+            // Guardamos el valor actual por si ya estaba seleccionado
+            const currentFromConfig = (currentConfig && currentConfig.Operation) ? currentConfig.Operation.SelectedOpener : "Ninguno";
+
+            sel.innerHTML = '<option value="Ninguno">Ninguno</option>';
+            list.forEach(name => {
+                const opt = document.createElement("option");
+                opt.value = name;
+                opt.innerText = name;
+                sel.appendChild(opt);
+            });
+
+            // Restaurar selección desde config
+            if (currentFromConfig) sel.value = currentFromConfig;
         }
 
         // === FUNCIONES DE CONSOLA ===
@@ -636,12 +688,17 @@
             sendJson("force_action", action);
             addLog(`Inyectando acción: ${action}`, "text-warning");
         }
+
         function updateOps() {
             const data = {
                 AoE_Enabled: getCheck("op_aoe"), TrueNorth_Auto: getCheck("op_truenorth"), SaveCD: getCheck("op_savecd"),
                 UsePB: getCheck("op_pb"), UseRoF: getCheck("op_rof"), UseBrotherhood: getCheck("op_bh"),
                 UseRoW: getCheck("op_row"), UseForbiddenChakra: getCheck("op_fc"),
-                UseMemoryInput: getCheck("op_memory")
+                UseMemoryInput: getCheck("op_memory"),
+
+                // NUEVO: Configuración de Opener
+                UseOpener: getCheck("op_useopener"),
+                SelectedOpener: document.getElementById("opener_select").value
             };
             sendJson("save_operation", data);
             addLog("Ajustes operativos actualizados");

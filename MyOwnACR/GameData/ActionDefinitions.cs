@@ -1,6 +1,6 @@
 // Archivo: GameData/ActionDefinitions.cs
 // Descripción: Definiciones base para el sistema de metadatos de habilidades.
-// CAMBIO: Renombrado ActionType -> ActionCooldownType para evitar conflictos.
+// CORRECCIÓN: Eliminado el prefijo '_' en el campo privado estático para cumplir IDE1006.
 
 using System.Collections.Generic;
 
@@ -42,19 +42,20 @@ namespace MyOwnACR.GameData
     /// </summary>
     public static class ActionLibrary
     {
-        private static readonly Dictionary<uint, ActionInfo> _actions = new();
+        // CAMBIO: Renombrado de _actions a actions
+        private static readonly Dictionary<uint, ActionInfo> Actions = new();
 
         public static void Register(ActionInfo action)
         {
-            if (!_actions.ContainsKey(action.Id))
+            if (!Actions.ContainsKey(action.Id))
             {
-                _actions[action.Id] = action;
+                Actions[action.Id] = action;
             }
         }
 
         public static ActionInfo? Get(uint id)
         {
-            return _actions.TryGetValue(id, out var info) ? info : null;
+            return Actions.TryGetValue(id, out var info) ? info : null;
         }
 
         public static bool IsGCD(uint id)
