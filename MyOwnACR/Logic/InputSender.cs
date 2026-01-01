@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace MyOwnACR
+namespace MyOwnACR.Logic
 {
     public struct InputTask
     {
@@ -58,47 +58,47 @@ namespace MyOwnACR
 
         // =====================================================================================
 
-        private static BlockingCollection<InputTask> _inputQueue = new BlockingCollection<InputTask>();
+        private static BlockingCollection<InputTask> InputQueue = new BlockingCollection<InputTask>();
 
         // Inicialización segura con null!
-        private static CancellationTokenSource _cts = null!;
-        private static Task _workerTask = null!;
-        private static bool _initialized = false;
+        private static CancellationTokenSource Cts = null!;
+        private static Task WorkerTask = null!;
+        private static bool Initialized = false;
 
-        private static DateTime _lastSentTime = DateTime.MinValue;
-        private static bool _lastWasGCD = true;
+        private static DateTime LastSentTime = DateTime.MinValue;
+        private static bool LastWasGCD = true;
 
         // Variables para Anti-Duplicación (Debounce)
-        private static DateTime _lastInputAddedTime = DateTime.MinValue;
-        private static byte _lastInputKey = 0;
+        private static DateTime LastInputAddedTime = DateTime.MinValue;
+        private static byte LastInputKey = 0;
 
-        private static readonly Random _rng = new Random();
+        private static readonly Random Rng = new Random();
 
         public static void Initialize()
         {
-            if (_initialized) return;
-            _cts = new CancellationTokenSource();
-            _inputQueue = new BlockingCollection<InputTask>();
+            if (Initialized) return;
+            Cts = new CancellationTokenSource();
+            InputQueue = new BlockingCollection<InputTask>();
 
             // Usamos LongRunning para asegurar un hilo dedicado
-            _workerTask = Task.Factory.StartNew(WorkerLoop, _cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            WorkerTask = Task.Factory.StartNew(WorkerLoop, Cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
-            _initialized = true;
+            Initialized = true;
             Plugin.Instance?.SendLog("[InputSender] Worker iniciado.");
             Plugin.Log.Debug("[InputSender] Sistema inicializado.");
         }
 
         public static void Dispose()
         {
-            if (!_initialized) return;
+            if (!Initialized) return;
 
-            _cts.Cancel();
-            _inputQueue.CompleteAdding();
+            Cts.Cancel();
+            InputQueue.CompleteAdding();
 
             try
             {
                 // Esperar a que el worker termine (máx 1s)
-                _workerTask.Wait(1000);
+                WorkerTask.Wait(1000);
             }
             catch (AggregateException ae)
             {
@@ -111,27 +111,27 @@ namespace MyOwnACR
                 if (Plugin.Log != null) Plugin.Log.Warning($"Error cerrando InputSender: {ex.Message}");
             }
 
-            _inputQueue.Dispose();
-            _cts.Dispose();
-            _initialized = false;
+            InputQueue.Dispose();
+            Cts.Dispose();
+            Initialized = false;
         }
 
         public static void Send(byte key, HotbarType barType, bool isGCD)
         {
-            if (!_initialized) Initialize();
+            if (!Initialized) Initialize();
 
             // Anti-Duplicación
             var now = DateTime.UtcNow;
-            if (key == _lastInputKey && (now - _lastInputAddedTime).TotalMilliseconds < 200)
+            if (key == LastInputKey && (now - LastInputAddedTime).TotalMilliseconds < 200)
             {
                 return;
             }
 
-            if (!_inputQueue.IsAddingCompleted)
+            if (!InputQueue.IsAddingCompleted)
             {
-                _inputQueue.Add(new InputTask(key, barType, isGCD));
-                _lastInputAddedTime = now;
-                _lastInputKey = key;
+                InputQueue.Add(new InputTask(key, barType, isGCD));
+                LastInputAddedTime = now;
+                LastInputKey = key;
             }
         }
 
@@ -139,7 +139,7 @@ namespace MyOwnACR
         {
             try
             {
-                foreach (var task in _inputQueue.GetConsumingEnumerable(_cts.Token))
+                foreach (var task in InputQueue.GetConsumingEnumerable(Cts.Token))
                 {
                     ProcessTask(task);
                 }
@@ -155,39 +155,39 @@ namespace MyOwnACR
 
         private static void ProcessTask(InputTask task)
         {
-            bool isRelaxedTransition = _lastWasGCD && task.IsGCD;
-            _lastWasGCD = task.IsGCD;
+            bool isRelaxedTransition = LastWasGCD && task.IsGCD;
+            LastWasGCD = task.IsGCD;
 
             int delayBase = isRelaxedTransition ? RelaxedDelayMs : AnxiousDelayMs;
             int delayJitter = isRelaxedTransition ? RelaxedJitterMs : AnxiousJitterMs;
 
-            int calculatedDelay = delayBase + _rng.Next(-delayJitter, delayJitter + 1);
+            int calculatedDelay = delayBase + Rng.Next(-delayJitter, delayJitter + 1);
             if (calculatedDelay < 5) calculatedDelay = 5;
 
-            var elapsed = (DateTime.UtcNow - _lastSentTime).TotalMilliseconds;
+            var elapsed = (DateTime.UtcNow - LastSentTime).TotalMilliseconds;
             if (elapsed < calculatedDelay)
             {
                 Thread.Sleep(calculatedDelay - (int)elapsed);
             }
 
-            _lastSentTime = DateTime.UtcNow;
+            LastSentTime = DateTime.UtcNow;
 
             PressModifiers(task.BarType);
 
-            int clicks = _rng.Next(MinSpamCount, MaxSpamCount + 1);
+            int clicks = Rng.Next(MinSpamCount, MaxSpamCount + 1);
 
             for (int i = 0; i < clicks; i++)
             {
-                if (_cts.Token.IsCancellationRequested) break;
+                if (Cts.Token.IsCancellationRequested) break;
 
-                int hold = KeyHoldMs + _rng.Next(-KeyHoldJitterMs, KeyHoldJitterMs + 1);
+                int hold = KeyHoldMs + Rng.Next(-KeyHoldJitterMs, KeyHoldJitterMs + 1);
                 keybd_event(task.Key, 0, 0, 0);
                 Thread.Sleep(hold);
                 keybd_event(task.Key, 0, KEYEVENTF_KEYUP, 0);
 
                 if (i < clicks - 1)
                 {
-                    int gap = SpamIntervalMs + _rng.Next(-SpamIntervalJitterMs, SpamIntervalJitterMs + 1);
+                    int gap = SpamIntervalMs + Rng.Next(-SpamIntervalJitterMs, SpamIntervalJitterMs + 1);
                     Thread.Sleep(gap);
                 }
             }

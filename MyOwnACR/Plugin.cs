@@ -1,6 +1,6 @@
 // Archivo: MyOwnACR/Plugin.cs
 // Descripción: Clase principal del Plugin.
-// VERSION: Production Ready + Thread Safety Fix (GetPotions).
+// VERSION: Final Refactor (RotationManager Integrated).
 
 using Dalamud.Game.Command;
 using Dalamud.IoC;
@@ -26,29 +26,23 @@ using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Game.ClientState.JobGauge.Types;
 using Lumina.Excel.Sheets;
 using MyOwnACR.GameData;
-using System.Linq; // Necesario para Select y ToList
+using System.Linq;
+using MyOwnACR.Logic;
+using MyOwnACR.Models;
 
 namespace MyOwnACR
 {
-    /// <summary>
-    /// Clase contenedora para estandarizar los mensajes JSON enviados al cliente Web.
-    /// </summary>
     public class WebMessage
     {
         public string type { get; set; } = "info";
         public object? data { get; set; }
     }
 
-    /// <summary>
-    /// Clase principal del Plugin que implementa IDalamudPlugin.
-    /// </summary>
     public sealed class Plugin : IDalamudPlugin
     {
         public string Name => "MyOwnACR Pro";
-
         public static Plugin Instance { get; private set; } = null!;
 
-        // --- Inyección de dependencias de Dalamud ---
         [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
         [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
         [PluginService] internal static IClientState ClientState { get; private set; } = null!;
@@ -64,13 +58,11 @@ namespace MyOwnACR
 
         public Configuration Config { get; set; }
 
-        // --- CONCURRENCIA Y RED ---
         private HttpListener? httpListener;
         private WebSocket? activeSocket;
         private readonly CancellationTokenSource cts = new();
-        private readonly SemaphoreSlim socketLock = new SemaphoreSlim(1, 1);
+        private readonly SemaphoreSlim socketLock = new(1, 1);
 
-        // Variables de estado 
         private volatile bool isRunning = false;
         private volatile bool isHotkeyDown = false;
         private volatile bool isSaveCdKeyDown = false;
@@ -78,24 +70,23 @@ namespace MyOwnACR
         private DateTime lastSentTime = DateTime.MinValue;
         private DateTime lastErrorLogTime = DateTime.MinValue;
 
+        // Suppress LibraryImport recommendation for now
+#pragma warning disable SYSLIB1054 
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
+#pragma warning restore SYSLIB1054
 
         public Plugin()
         {
             Instance = this;
-
-            // Carga o crea la configuración
             Config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
             Config.Initialize(PluginInterface);
 
-            // === INICIALIZACIÓN DE OPENERS ===
-            string assemblyDir = PluginInterface.AssemblyLocation.DirectoryName!;
-            Logic.OpenerManager.Instance.LoadOpeners(assemblyDir);
-            // =================================
+            var assemblyDir = PluginInterface.AssemblyLocation.DirectoryName!;
+            OpenerManager.Instance.LoadOpeners(assemblyDir);
 
             try
             {
@@ -112,34 +103,24 @@ namespace MyOwnACR
             CommandManager.AddHandler("/acrdebug", new CommandInfo(OnCommandDebug) { HelpMessage = "Debug Logic" });
 
             Task.Run(() => StartWebServer(cts.Token));
-
             Framework.Update += OnGameUpdate;
         }
 
         public void Dispose()
         {
-            // 1. Detener lógica del juego inmediatamente
             Framework.Update -= OnGameUpdate;
-
-            // 2. Cancelar el Token (Esto detiene el bucle while en StartWebServer)
             try { cts.Cancel(); } catch { }
 
-            // 3. Limpiar comandos
             CommandManager.RemoveHandler("/acr");
             CommandManager.RemoveHandler("/acrstatus");
             CommandManager.RemoveHandler("/acrdebug");
 
-            // 4. Detener sistemas externos
             InputSender.Dispose();
 
-            // 5. LIMPIEZA DE RED AGRESIVA (Para liberar puerto 5055 rápido)
-
-            // A. Matar WebSocket
             try
             {
                 if (activeSocket != null)
                 {
-                    // No usamos CloseAsync ni Wait(). Usamos Abort() para matar la conexión TCP al instante.
                     activeSocket.Abort();
                     activeSocket.Dispose();
                     activeSocket = null;
@@ -147,42 +128,28 @@ namespace MyOwnACR
             }
             catch (Exception ex) { Log.Warning($"Error matando WebSocket: {ex.Message}"); }
 
-            // B. Matar HttpListener
             try
             {
                 if (httpListener != null)
                 {
-                    // Forzamos el stop si sigue escuchando
-                    if (httpListener.IsListening)
-                    {
-                        httpListener.Stop();
-                    }
-                    httpListener.Close(); // Libera el puerto 5055
+                    if (httpListener.IsListening) httpListener.Stop();
+                    httpListener.Close();
                     httpListener = null;
                 }
             }
             catch (Exception ex) { Log.Warning($"Error matando HttpListener: {ex.Message}"); }
 
-            // 6. Limpieza final de objetos de concurrencia
-            try
-            {
-                socketLock.Dispose();
-                cts.Dispose();
-            }
-            catch { }
+            try { socketLock.Dispose(); cts.Dispose(); } catch { }
         }
 
-        public void SendLog(string message)
-        {
-            _ = SendJsonAsync("log", message);
-        }
+        public void SendLog(string message) => _ = SendJsonAsync("log", message);
 
         private void FocusGame()
         {
             try
             {
                 var process = Process.GetCurrentProcess();
-                IntPtr hWnd = process.MainWindowHandle;
+                var hWnd = process.MainWindowHandle;
                 if (hWnd != IntPtr.Zero) SetForegroundWindow(hWnd);
             }
             catch (Exception ex) { Log.Error(ex, "Error enfocando ventana"); }
@@ -207,7 +174,7 @@ namespace MyOwnACR
         private void ToggleRunning()
         {
             isRunning = !isRunning;
-            string status = isRunning ? "ACTIVADO" : "PAUSADO";
+            var status = isRunning ? "ACTIVADO" : "PAUSADO";
             SendLog($"Bot {status} manualmente");
             Log.Info($"Bot estado cambiado a: {status}");
         }
@@ -223,11 +190,11 @@ namespace MyOwnACR
             foreach (var status in player.StatusList)
             {
                 if (status.StatusId == 0) continue;
-                string name = "Desconocido";
+                var name = "Desconocido";
                 if (statusSheet != null && statusSheet.TryGetRow(status.StatusId, out var row))
                     name = row.Name.ToString();
 
-                string msg = $"[{status.StatusId}] {name} ({status.RemainingTime:F1}s)";
+                var msg = $"[{status.StatusId}] {name} ({status.RemainingTime:F1}s)";
                 Chat.Print(msg);
                 SendLog(msg);
             }
@@ -235,7 +202,8 @@ namespace MyOwnACR
 
         private void OnCommandDebug(string command, string args)
         {
-            Logic.MNK_Logic.PrintDebugInfo(Chat);
+            // CAMBIO: Delegar al Manager
+            RotationManager.Instance.PrintDebugInfo(Chat);
             SendLog("Debug Info impresa en chat del juego.");
         }
 
@@ -245,8 +213,7 @@ namespace MyOwnACR
 
             try
             {
-                // --- TOGGLE PRINCIPAL (ON/OFF) ---
-                bool currentState = KeyState[Config.ToggleHotkey];
+                var currentState = KeyState[Config.ToggleHotkey];
                 if (currentState && !isHotkeyDown)
                 {
                     isHotkeyDown = true;
@@ -257,15 +224,14 @@ namespace MyOwnACR
                     isHotkeyDown = false;
                 }
 
-                // --- TOGGLE SAVE COOLDOWNS (NUMPAD -) ---
-                bool currentSaveCdState = KeyState[VirtualKey.SUBTRACT];
+                var currentSaveCdState = KeyState[VirtualKey.SUBTRACT];
                 if (currentSaveCdState && !isSaveCdKeyDown)
                 {
                     isSaveCdKeyDown = true;
                     Config.Operation.SaveCD = !Config.Operation.SaveCD;
                     Config.Save();
 
-                    string status = Config.Operation.SaveCD ? "ACTIVADO" : "DESACTIVADO";
+                    var status = Config.Operation.SaveCD ? "ACTIVADO" : "DESACTIVADO";
                     Chat.Print($"[ACR] Save Cooldowns: {status}");
                     SendLog($"Save Cooldowns (Manual): {status}");
 
@@ -291,20 +257,22 @@ namespace MyOwnACR
                         var player = ObjectTable.LocalPlayer;
                         if (player != null && player.CurrentHp > 0)
                         {
-                            ActionManager* am = ActionManager.Instance();
+                            var am = ActionManager.Instance();
                             if (am != null)
                             {
                                 var jobId = player.ClassJob.RowId;
-                                if (jobId == 20 || jobId == 2)
-                                {
-                                    bool survivalActionUsed = Logic.Survival.Execute(
-                                        am, player, Config.Survival, Config.Monk.SecondWind, Config.Monk.Bloodbath
-                                    );
+                                // Nota: Quitamos el check manual de "if jobId == 20" porque el RotationManager ya se encarga de eso.
+                                // Si no hay lógica para el job actual, RotationManager simplemente no hace nada.
 
-                                    if (!survivalActionUsed)
-                                    {
-                                        Logic.MNK_Logic.Execute(am, player, Config.Monk, ObjectTable, Config.Operation);
-                                    }
+                                // Ejecutar supervivencia (General para todos)
+                                var survivalActionUsed = Logic.Survival.Execute(
+                                    am, player, Config.Survival, Config.Monk.SecondWind, Config.Monk.Bloodbath
+                                );
+
+                                if (!survivalActionUsed)
+                                {
+                                    // CAMBIO: Llamada centralizada al RotationManager
+                                    RotationManager.Instance.Execute(am, player, ObjectTable, Config);
                                 }
                             }
                         }
@@ -314,21 +282,20 @@ namespace MyOwnACR
                         if ((DateTime.Now - lastErrorLogTime).TotalSeconds > 1)
                         {
                             lastErrorLogTime = DateTime.Now;
-                            string msg = $"Bot detenido por seguridad: {blockReason}";
+                            var msg = $"Bot detenido por seguridad: {blockReason}";
                             SendLog(msg);
                         }
                     }
                 }
 
-                // Dashboard Update
                 var now = DateTime.Now;
                 if ((now - lastSentTime).TotalMilliseconds >= 100)
                 {
                     lastSentTime = now;
                     var player = ObjectTable.LocalPlayer;
 
-                    string targetName = "--";
-                    string playerName = "--";
+                    var targetName = "--";
+                    var playerName = "--";
                     uint jobId = 0;
                     uint combo = 0;
                     uint tHp = 0; uint tMax = 0;
@@ -348,13 +315,14 @@ namespace MyOwnACR
                             }
                         }
 
-                        ActionManager* am = ActionManager.Instance();
+                        var am = ActionManager.Instance();
                         if (am != null) combo = am->Combo.Action;
                     }
 
-                    bool inCombat = Condition[ConditionFlag.InCombat];
+                    var inCombat = Condition[ConditionFlag.InCombat];
                     var statusText = isRunning ? (inCombat ? "COMBATIENDO" : "ESPERANDO") : "PAUSADO";
 
+                    // CAMBIO: Obtener datos de acción desde el Manager
                     _ = SendJsonAsync("status", new
                     {
                         is_running = isRunning,
@@ -364,9 +332,9 @@ namespace MyOwnACR
                         max_hp = (player != null) ? (int)player.MaxHp : 1,
                         target = targetName,
                         job = jobId,
-                        combo = combo,
-                        next_action = Logic.MNK_Logic.LastProposedAction,
-                        queued_action = Logic.MNK_Logic.GetQueuedAction(),
+                        combo,
+                        next_action = RotationManager.Instance.GetLastProposedAction(),
+                        queued_action = RotationManager.Instance.GetQueuedAction(),
                         player_name = playerName,
                         target_hp = (int)tHp,
                         target_max_hp = (int)tMax
@@ -384,7 +352,7 @@ namespace MyOwnACR
         {
             if (activeSocket == null || activeSocket.State != WebSocketState.Open || cts.IsCancellationRequested) return;
 
-            bool lockTaken = false;
+            var lockTaken = false;
             try
             {
                 await socketLock.WaitAsync(cts.Token);
@@ -408,7 +376,6 @@ namespace MyOwnACR
 
         private async Task StartWebServer(CancellationToken token)
         {
-            // Reinicio robusto del listener
             try { httpListener?.Close(); } catch { }
             httpListener = new HttpListener();
             httpListener.Prefixes.Add("http://127.0.0.1:5055/");
@@ -428,24 +395,18 @@ namespace MyOwnACR
             {
                 try
                 {
-                    // Esperamos una conexión (Petición HTTP)
                     var context = await httpListener.GetContextAsync();
 
                     if (context.Request.IsWebSocketRequest)
                     {
-                        // IMPORTANTE: Procesamos la conexión sin bloquear el bucle principal
-                        // Usamos Task.Run para que el 'while' vuelva arriba inmediatamente a escuchar la siguiente (F5)
                         _ = Task.Run(async () =>
                         {
                             try
                             {
                                 var wsContext = await context.AcceptWebSocketAsync(null);
-
-                                // Gestión de "Un solo cliente a la vez"
                                 await socketLock.WaitAsync(token);
                                 try
                                 {
-                                    // Si ya había uno conectado (ej. antes del F5), lo matamos
                                     if (activeSocket != null)
                                     {
                                         try { activeSocket.Abort(); activeSocket.Dispose(); } catch { }
@@ -455,8 +416,6 @@ namespace MyOwnACR
                                 finally { socketLock.Release(); }
 
                                 Log.Info("Cliente WebSocket conectado (Dashboard)");
-
-                                // Entramos al bucle de recepción de este cliente específico
                                 await ReceiveCommands(activeSocket, token);
                             }
                             catch (Exception ex)
@@ -467,7 +426,6 @@ namespace MyOwnACR
                     }
                     else
                     {
-                        // Rechazar peticiones normales (400 Bad Request)
                         context.Response.StatusCode = 400;
                         context.Response.Close();
                     }
@@ -478,7 +436,7 @@ namespace MyOwnACR
                 {
                     if (token.IsCancellationRequested) break;
                     Log.Error(ex, "Error en bucle HttpListener. Reintentando...");
-                    await Task.Delay(1000, token); // Pequeña pausa anti-spam de errores
+                    await Task.Delay(1000, token);
                 }
             }
         }
@@ -493,7 +451,7 @@ namespace MyOwnACR
                     var result = await s.ReceiveAsync(new ArraySegment<byte>(buffer), token);
                     if (result.MessageType == WebSocketMessageType.Close) break;
 
-                    string jsonMsg = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                    var jsonMsg = Encoding.UTF8.GetString(buffer, 0, result.Count);
                     _ = Task.Run(() => HandleJsonCommand(jsonMsg), token);
                 }
                 catch { break; }
@@ -505,8 +463,8 @@ namespace MyOwnACR
         {
             try
             {
-                JObject cmd = JObject.Parse(json);
-                string type = cmd["cmd"]?.ToString() ?? "";
+                var cmd = JObject.Parse(json);
+                var type = cmd["cmd"]?.ToString() ?? "";
 
                 if (type == "START")
                 {
@@ -521,8 +479,9 @@ namespace MyOwnACR
                 }
                 else if (type == "force_action")
                 {
-                    string actionName = cmd["data"]?.ToString() ?? "";
-                    Logic.MNK_Logic.QueueManualAction(actionName);
+                    var actionName = cmd["data"]?.ToString() ?? "";
+                    // CAMBIO: Delegar al Manager
+                    RotationManager.Instance.QueueManualAction(actionName);
                     FocusGame();
                     SendLog($"Acción forzada recibida: {actionName}");
                 }
@@ -539,7 +498,7 @@ namespace MyOwnACR
                 }
                 else if (type == "save_global")
                 {
-                    string keyStr = cmd["data"]?["ToggleKey"]?.ToString() ?? "F8";
+                    var keyStr = cmd["data"]?["ToggleKey"]?.ToString() ?? "F8";
                     if (Enum.TryParse(keyStr, out VirtualKey k))
                     {
                         Config.ToggleHotkey = k;
@@ -549,7 +508,7 @@ namespace MyOwnACR
                 }
                 else if (type == "save_config")
                 {
-                    var newMonk = cmd["data"]?.ToObject<MyOwnACR.JobConfigs.JobConfig_MNK>();
+                    var newMonk = cmd["data"]?.ToObject<JobConfigs.JobConfig_MNK>();
                     if (newMonk != null) { Config.Monk = newMonk; Config.Save(); }
                 }
                 else if (type == "save_survival")
@@ -565,12 +524,11 @@ namespace MyOwnACR
                 }
                 else if (type == "get_openers")
                 {
-                    var list = Logic.OpenerManager.Instance.GetOpenerNames();
+                    var list = OpenerManager.Instance.GetOpenerNames();
                     _ = SendJsonAsync("opener_list", list);
                 }
                 else if (type == "get_potions")
                 {
-                    // FIX CRÍTICO: Ejecutar acceso a memoria del juego en el Hilo Principal (Framework)
                     Framework.RunOnTick(() =>
                     {
                         try
@@ -578,9 +536,9 @@ namespace MyOwnACR
                             var player = ObjectTable.LocalPlayer;
                             if (player != null)
                             {
-                                uint jobId = player.ClassJob.RowId;
-                                var mainStat = GameData.JobPotionMapping.GetMainStat(jobId);
-                                var potionsDict = GameData.Potion_IDs.GetListForStat(mainStat);
+                                var jobId = player.ClassJob.RowId;
+                                var mainStat = JobPotionMapping.GetMainStat(jobId);
+                                var potionsDict = Potion_IDs.GetListForStat(mainStat);
 
                                 var list = potionsDict
                                     .Select(kv => new { Name = kv.Key, Id = kv.Value })
@@ -590,7 +548,7 @@ namespace MyOwnACR
                             }
                             else
                             {
-                                _ = SendJsonAsync("potion_list", new object[] { });
+                                _ = SendJsonAsync("potion_list", Array.Empty<object>());
                             }
                         }
                         catch (Exception ex) { Log.Error(ex, "Error getting potions on main thread"); }
