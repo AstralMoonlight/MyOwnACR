@@ -209,19 +209,11 @@
                         <i class="fa-solid fa-flask text-secondary"></i> Potion Selector
                     </h3>
 
-                    <div class="form-control mb-2">
-                        <label class="label cursor-pointer justify-between bg-base-200 rounded-lg px-3 py-2">
-                            <span class="label-text font-bold">Usar en Opener</span>
-                            <input type="checkbox" class="toggle toggle-secondary toggle-sm" id="op_usepotion"
-                                onchange="updateOps()" />
-                        </label>
-                    </div>
-
                     <div class="form-control">
-                        <label class="label"><span class="label-text text-xs">Poción Seleccionada</span></label>
+                        <label class="label"><span class="label-text text-xs">Poción Activa</span></label>
                         <select id="potion_select" class="select select-sm select-bordered w-full font-mono text-xs"
                             onchange="updateOps()">
-                            <option value="0">Cargando...</option>
+                            <option value="0">Ninguna</option>
                         </select>
                     </div>
                 </div>
@@ -291,6 +283,16 @@
                                 onchange="updateOps()" />
                         </div>
 
+                        <div
+                            class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3 border border-secondary/20">
+                            <div class="flex flex-col">
+                                <span class="text-sm font-bold text-secondary">Usar Pociones</span>
+                                <span class="text-[0.6rem] opacity-60">Global (Opener/Rot)</span>
+                            </div>
+                            <input type="checkbox" class="toggle toggle-sm toggle-secondary" id="op_usepotion"
+                                onchange="updateOps()" />
+                        </div>
+
                         <div class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3">
                             <span class="text-sm font-bold">AoE (Área)</span>
                             <input type="checkbox" class="toggle toggle-sm toggle-info" id="op_aoe"
@@ -301,6 +303,7 @@
                             <input type="checkbox" class="toggle toggle-sm toggle-info" id="op_truenorth"
                                 onchange="updateOps()" />
                         </div>
+
                         <label class="label cursor-pointer bg-base-200 rounded-lg px-3 hover:bg-base-300">
                             <span class="label-text text-xs font-bold uppercase">Perf. Balance</span>
                             <input type="checkbox" class="checkbox checkbox-sm checkbox-primary" id="op_pb"
@@ -444,7 +447,7 @@
         const HOST = "127.0.0.1:5055";
         let ws;
         let currentConfig = {};
-        let lastJobId = -1; // Para detectar cambios de clase
+        let lastJobId = -1;
 
         // === DEFINICIONES ===
         const BARS = { 0: "Base", 1: "Ctrl", 2: "Shift", 3: "Alt", 4: "Ctrl+Alt" };
@@ -463,7 +466,6 @@
             36947: "Pouncing Coeurl", 25764: "Blitz", 110: "Perfect Bal.", 7396: "Riddle Fire"
         };
 
-        // MAPEO DE NOMBRES DE CLASES
         const JOB_NAMES = {
             19: "PLD", 20: "MNK", 21: "WAR", 22: "DRG", 23: "BRD", 24: "WHM", 25: "BLM",
             26: "ACN", 27: "SMN", 28: "SCH", 29: "ROG", 30: "NIN", 31: "MCH", 32: "DRK",
@@ -471,7 +473,6 @@
             40: "SGE", 41: "VPR", 42: "PCT"
         };
 
-        // === INICIALIZACIÓN ===
         const hotkeySelect = document.getElementById("global_hotkey");
         Object.entries(KEYS).forEach(([code, label]) => {
             const opt = document.createElement("option");
@@ -480,7 +481,6 @@
             hotkeySelect.appendChild(opt);
         });
 
-        // NUEVA FUNCIÓN DE CONEXIÓN CON AUTO-RETRY
         function connect() {
             ws = new WebSocket(`ws://${HOST}`);
 
@@ -491,7 +491,7 @@
 
                 sendJson("get_config");
                 sendJson("get_openers");
-                // Solicitaremos pociones dinámicamente cuando detectemos el job
+                // Solicitud dinámica en updateDashboard
             };
 
             ws.onclose = () => {
@@ -522,7 +522,6 @@
 
         connect();
 
-        // === FUNCIONES DE UI ===
         function updateDashboard(d) {
             try {
                 if (d.is_running) {
@@ -531,20 +530,15 @@
                     document.body.classList.remove("border-active");
                 }
 
-                // DETECCION DE CAMBIO DE CLASE
                 if (d.job && d.job !== lastJobId) {
                     lastJobId = d.job;
 
-                    // Actualizar Header
                     const jobName = JOB_NAMES[d.job] || "UNK";
                     const badge = document.getElementById("header-job");
                     badge.innerText = jobName;
                     badge.classList.remove("opacity-0");
 
-                    // Pedir lista de pociones nueva para esta clase
                     sendJson("get_potions");
-
-                    // AQUÍ IRÁ LA LÓGICA FUTURA PARA MOSTRAR/OCULTAR PANELES POR CLASE
                 }
 
                 document.getElementById("target").innerText = d.target || "--";
@@ -578,11 +572,11 @@
                 setCheck("op_pb", op.UsePB); setCheck("op_rof", op.UseRoF); setCheck("op_bh", op.UseBrotherhood);
                 setCheck("op_row", op.UseRoW); setCheck("op_fc", op.UseForbiddenChakra);
                 setCheck("op_memory", op.UseMemoryInput);
+
                 setCheck("op_useopener", op.UseOpener);
                 const sel = document.getElementById("opener_select");
                 if (sel && op.SelectedOpener) sel.value = op.SelectedOpener;
 
-                // Carga de Configuración de Pociones
                 setCheck("op_usepotion", op.UsePotion);
                 const pSel = document.getElementById("potion_select");
                 if (pSel && op.SelectedPotionId) pSel.value = op.SelectedPotionId;
@@ -654,7 +648,6 @@
                 opt.innerText = p.Name;
                 sel.appendChild(opt);
             });
-            // Restaurar selección desde config
             if (currentFromConfig) sel.value = currentFromConfig;
         }
 
