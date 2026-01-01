@@ -1,7 +1,6 @@
 // Archivo: MyOwnACR/Plugin.cs
 // Descripción: Clase principal del Plugin.
-// AJUSTES: Desactivada validación de Chat (Node 2) por falsos positivos.
-// FIX: El bot ahora solo valida que la ventana del juego tenga el foco (IsSafeToAct).
+// VERSION: Production Ready + Robust WebSocket + Opener Support + Aggressive Dispose.
 
 using Dalamud.Game.Command;
 using Dalamud.IoC;
@@ -12,7 +11,7 @@ using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.ClientState.Keys;
 using FFXIVClientStructs.FFXIV.Client.Game;
-using FFXIVClientStructs.FFXIV.Component.GUI; // Necesario para chequear el Chat UI
+using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
 using System.Net;
 using System.Net.WebSockets;
@@ -26,7 +25,7 @@ using Newtonsoft.Json.Linq;
 using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Game.ClientState.JobGauge.Types;
 using Lumina.Excel.Sheets;
-using MyOwnACR.GameData; // NECESARIO para inicializar MNK_ActionData
+using MyOwnACR.GameData;
 
 namespace MyOwnACR
 {
@@ -46,7 +45,6 @@ namespace MyOwnACR
     {
         public string Name => "MyOwnACR Pro";
 
-        // Instancia estática para acceder a SendLog desde otras clases (ej. MNK_Logic)
         public static Plugin Instance { get; private set; } = null!;
 
         // --- Inyección de dependencias de Dalamud ---
@@ -60,64 +58,44 @@ namespace MyOwnACR
         [PluginService] internal static IJobGauges JobGauges { get; private set; } = null!;
         [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
         [PluginService] internal static IKeyState KeyState { get; private set; } = null!;
-
-        // NUEVO: GameGui para detectar si el chat está abierto
         [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
-
-        // NUEVO: Servicio de Logging de Dalamud
         [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
-        // Configuración persistente
         public Configuration Config { get; set; }
 
         // --- CONCURRENCIA Y RED ---
         private HttpListener? httpListener;
         private WebSocket? activeSocket;
-        private readonly CancellationTokenSource cts = new(); // Token global de cancelación para el plugin
-
-        // Semáforo para proteger la escritura en el WebSocket (1 hilo a la vez)
-        // FIX: Renombrado para evitar IDE1006 (quitado el guion bajo)
+        private readonly CancellationTokenSource cts = new();
         private readonly SemaphoreSlim socketLock = new SemaphoreSlim(1, 1);
 
-        // Variables de estado (Volatile para asegurar visibilidad entre hilos)
+        // Variables de estado 
         private volatile bool isRunning = false;
         private volatile bool isHotkeyDown = false;
-
-        // NUEVO: Estado para la tecla de SaveCD (Debounce)
         private volatile bool isSaveCdKeyDown = false;
 
-        private DateTime lastSentTime = DateTime.MinValue; // Control de tasa de refresco del Dashboard
-        private DateTime lastErrorLogTime = DateTime.MinValue; // Control de tasa de logs de error
+        private DateTime lastSentTime = DateTime.MinValue;
+        private DateTime lastErrorLogTime = DateTime.MinValue;
 
-        // Importación de DLL para traer la ventana del juego al frente
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
 
-        // NUEVO: Importación para leer qué ventana tiene el foco
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
 
-        /// <summary>
-        /// Constructor: Inicializa configuración, comandos, servidor web y hooks del framework.
-        /// </summary>
         public Plugin()
         {
-            Instance = this; // Asignar instancia estática
+            Instance = this;
 
             // Carga o crea la configuración
             Config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
             Config.Initialize(PluginInterface);
 
             // === INICIALIZACIÓN DE OPENERS ===
-            // Obtenemos la ruta donde vive la DLL compilada (bin/Debug/...)
             string assemblyDir = PluginInterface.AssemblyLocation.DirectoryName!;
-
-            // Le decimos al Manager que busque en esa carpeta
             Logic.OpenerManager.Instance.LoadOpeners(assemblyDir);
             // =================================
 
-
-            // INICIALIZACIÓN CENTRALIZADA DE DATOS DE JUEGO (GameData)
             try
             {
                 MNK_ActionData.Initialize();
@@ -128,28 +106,22 @@ namespace MyOwnACR
                 Log.Error(ex, "Error crítico inicializando subsistemas");
             }
 
-            // Registro de comandos de chat
             CommandManager.AddHandler("/acr", new CommandInfo(OnCommand) { HelpMessage = "Activar/Pausar Bot" });
             CommandManager.AddHandler("/acrstatus", new CommandInfo(OnCommandStatus) { HelpMessage = "Ver Buffs" });
             CommandManager.AddHandler("/acrdebug", new CommandInfo(OnCommandDebug) { HelpMessage = "Debug Logic" });
 
-            // Inicio del servidor Web en un hilo separado
             Task.Run(() => StartWebServer(cts.Token));
 
-            // Suscripción al bucle de actualización del juego (cada frame)
             Framework.Update += OnGameUpdate;
         }
 
-        /// <summary>
-        /// Limpieza de recursos al descargar el plugin.
-        /// </summary>
         public void Dispose()
         {
-            // 1. Detener lógica del juego primero
+            // 1. Detener lógica del juego inmediatamente
             Framework.Update -= OnGameUpdate;
 
-            // 2. Cancelar todas las tareas asíncronas
-            cts.Cancel();
+            // 2. Cancelar el Token (Esto detiene el bucle while en StartWebServer)
+            try { cts.Cancel(); } catch { }
 
             // 3. Limpiar comandos
             CommandManager.RemoveHandler("/acr");
@@ -159,30 +131,44 @@ namespace MyOwnACR
             // 4. Detener sistemas externos
             InputSender.Dispose();
 
-            // 5. Limpieza de Red
-            try
-            {
-                httpListener?.Stop();
-                httpListener?.Close();
-            }
-            catch (Exception ex) { Log.Warning($"Error cerrando HttpListener: {ex.Message}"); }
+            // 5. LIMPIEZA DE RED AGRESIVA (Para liberar puerto 5055 rápido)
 
+            // A. Matar WebSocket
             try
             {
                 if (activeSocket != null)
                 {
-                    if (activeSocket.State == WebSocketState.Open)
-                    {
-                        var closeTask = activeSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Plugin Disposing", CancellationToken.None);
-                        closeTask.Wait(1000);
-                    }
+                    // No usamos CloseAsync ni Wait(). Usamos Abort() para matar la conexión TCP al instante.
+                    activeSocket.Abort();
                     activeSocket.Dispose();
+                    activeSocket = null;
                 }
             }
-            catch (Exception ex) { Log.Warning($"Error cerrando WebSocket: {ex.Message}"); }
+            catch (Exception ex) { Log.Warning($"Error matando WebSocket: {ex.Message}"); }
 
-            socketLock.Dispose();
-            cts.Dispose();
+            // B. Matar HttpListener
+            try
+            {
+                if (httpListener != null)
+                {
+                    // Forzamos el stop si sigue escuchando
+                    if (httpListener.IsListening)
+                    {
+                        httpListener.Stop();
+                    }
+                    httpListener.Close(); // Libera el puerto 5055
+                    httpListener = null;
+                }
+            }
+            catch (Exception ex) { Log.Warning($"Error matando HttpListener: {ex.Message}"); }
+
+            // 6. Limpieza final de objetos de concurrencia
+            try
+            {
+                socketLock.Dispose();
+                cts.Dispose();
+            }
+            catch { }
         }
 
         public void SendLog(string message)
@@ -201,47 +187,17 @@ namespace MyOwnACR
             catch (Exception ex) { Log.Error(ex, "Error enfocando ventana"); }
         }
 
-        /// <summary>
-        /// Verifica si es seguro enviar inputs (Foco de ventana y Chat inactivo).
-        /// Devuelve true si es seguro, false y la razón si no lo es.
-        /// </summary>
         private unsafe bool IsSafeToAct(out string failReason)
         {
             failReason = "";
-
-            // 1. Check de Ventana Activa (Anti Alt-Tab)
             var gameHandle = Process.GetCurrentProcess().MainWindowHandle;
             var activeHandle = GetForegroundWindow();
 
-            // Si las ventanas no coinciden, estamos fuera de foco.
-            // Ignoramos si activeHandle es 0 (a veces pasa en transiciones o overlays).
             if (activeHandle != IntPtr.Zero && gameHandle != activeHandle)
             {
                 failReason = $"Ventana Inactiva (Juego: {gameHandle}, Foco: {activeHandle})";
                 return false;
             }
-
-            // 2. Check de Chat Activo (Evitar escribir en el chat)
-            // ESTADO: DESACTIVADO TEMPORALMENTE (Causa Falsos Positivos constantes)
-            // El Node(2) parece estar siempre visible en esta versión del juego.
-
-            /*
-            IntPtr chatLogPtr = GameGui.GetAddonByName("ChatLog", 1);
-            if (chatLogPtr != IntPtr.Zero)
-            {
-                var chatLog = (AtkUnitBase*)chatLogPtr;
-                if (chatLog->IsVisible)
-                {
-                    var textInputNode = chatLog->GetNodeById(2);
-                    if (textInputNode != null && textInputNode->IsVisible())
-                    {
-                        failReason = "Chat Activo (Detectado input de texto)";
-                        return false;
-                    }
-                }
-            }
-            */
-
             return true;
         }
 
@@ -300,8 +256,7 @@ namespace MyOwnACR
                     isHotkeyDown = false;
                 }
 
-                // --- NUEVO: TOGGLE SAVE COOLDOWNS (NUMPAD -) ---
-                // FIX: Usamos SUBTRACT (109) en lugar de Subtract
+                // --- TOGGLE SAVE COOLDOWNS (NUMPAD -) ---
                 bool currentSaveCdState = KeyState[VirtualKey.SUBTRACT];
                 if (currentSaveCdState && !isSaveCdKeyDown)
                 {
@@ -313,7 +268,6 @@ namespace MyOwnACR
                     Chat.Print($"[ACR] Save Cooldowns: {status}");
                     SendLog($"Save Cooldowns (Manual): {status}");
 
-                    // FIX: Forzamos el envío de la configuración completa para que el Dashboard actualice el checkbox
                     var payload = new
                     {
                         Monk = Config.Monk,
@@ -330,7 +284,6 @@ namespace MyOwnACR
 
                 if (isRunning)
                 {
-                    // CHECK DE SEGURIDAD (Ventana Activa solamente)
                     string blockReason;
                     if (IsSafeToAct(out blockReason))
                     {
@@ -357,13 +310,11 @@ namespace MyOwnACR
                     }
                     else
                     {
-                        // Si está bloqueado y ha pasado 1 segundo, mandamos log para debuggear
                         if ((DateTime.Now - lastErrorLogTime).TotalSeconds > 1)
                         {
                             lastErrorLogTime = DateTime.Now;
                             string msg = $"Bot detenido por seguridad: {blockReason}";
                             SendLog(msg);
-                            // Log.Debug(msg); // Descomentar para ver en consola Dalamud
                         }
                     }
                 }
@@ -406,7 +357,7 @@ namespace MyOwnACR
                     _ = SendJsonAsync("status", new
                     {
                         is_running = isRunning,
-                        save_cd = Config.Operation.SaveCD, // Enviamos el estado de SaveCD al dashboard
+                        save_cd = Config.Operation.SaveCD,
                         status = statusText,
                         hp = (player != null) ? (int)player.CurrentHp : 0,
                         max_hp = (player != null) ? (int)player.MaxHp : 1,
@@ -456,48 +407,77 @@ namespace MyOwnACR
 
         private async Task StartWebServer(CancellationToken token)
         {
-            while (!token.IsCancellationRequested)
+            // Reinicio robusto del listener
+            try { httpListener?.Close(); } catch { }
+            httpListener = new HttpListener();
+            httpListener.Prefixes.Add("http://127.0.0.1:5055/");
+
+            try
+            {
+                httpListener.Start();
+                Log.Info("Servidor Web iniciado en puerto 5055");
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"No se pudo iniciar HttpListener: {ex.Message}");
+                return;
+            }
+
+            while (!token.IsCancellationRequested && httpListener.IsListening)
             {
                 try
                 {
-                    if (httpListener != null) try { httpListener.Close(); } catch { }
-                    httpListener = new HttpListener();
-                    httpListener.Prefixes.Add("http://127.0.0.1:5055/");
-                    httpListener.Start();
-                    Log.Info("Servidor Web iniciado en puerto 5055");
+                    // Esperamos una conexión (Petición HTTP)
+                    var context = await httpListener.GetContextAsync();
 
-                    while (httpListener.IsListening && !token.IsCancellationRequested)
+                    if (context.Request.IsWebSocketRequest)
                     {
-                        var context = await httpListener.GetContextAsync();
-
-                        if (context.Request.IsWebSocketRequest)
+                        // IMPORTANTE: Procesamos la conexión sin bloquear el bucle principal
+                        // Usamos Task.Run para que el 'while' vuelva arriba inmediatamente a escuchar la siguiente (F5)
+                        _ = Task.Run(async () =>
                         {
-                            var wsContext = await context.AcceptWebSocketAsync(null);
+                            try
+                            {
+                                var wsContext = await context.AcceptWebSocketAsync(null);
 
-                            await socketLock.WaitAsync(token);
-                            try { activeSocket = wsContext.WebSocket; }
-                            finally { socketLock.Release(); }
+                                // Gestión de "Un solo cliente a la vez"
+                                await socketLock.WaitAsync(token);
+                                try
+                                {
+                                    // Si ya había uno conectado (ej. antes del F5), lo matamos
+                                    if (activeSocket != null)
+                                    {
+                                        try { activeSocket.Abort(); activeSocket.Dispose(); } catch { }
+                                    }
+                                    activeSocket = wsContext.WebSocket;
+                                }
+                                finally { socketLock.Release(); }
 
-                            Log.Info("Cliente WebSocket conectado");
-                            await ReceiveCommands(activeSocket, token);
-                        }
-                        else
-                        {
-                            context.Response.StatusCode = 400;
-                            context.Response.Close();
-                        }
+                                Log.Info("Cliente WebSocket conectado (Dashboard)");
+
+                                // Entramos al bucle de recepción de este cliente específico
+                                await ReceiveCommands(activeSocket, token);
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Debug($"Error en manejo de cliente WS: {ex.Message}");
+                            }
+                        }, token);
+                    }
+                    else
+                    {
+                        // Rechazar peticiones normales (400 Bad Request)
+                        context.Response.StatusCode = 400;
+                        context.Response.Close();
                     }
                 }
                 catch (OperationCanceledException) { break; }
-                catch (ObjectDisposedException) { break; } // FIX: Salida limpia si el objeto se destruye
-                catch (HttpListenerException) { if (token.IsCancellationRequested) break; } // FIX: Salida limpia si el listener se cierra
+                catch (ObjectDisposedException) { break; }
                 catch (Exception ex)
                 {
-                    // FIX: Si estamos cancelando, ignorar errores
                     if (token.IsCancellationRequested) break;
-
-                    Log.Error(ex, "Error fatal en servidor web. Reiniciando...");
-                    try { await Task.Delay(2000, token); } catch { break; }
+                    Log.Error(ex, "Error en bucle HttpListener. Reintentando...");
+                    await Task.Delay(1000, token); // Pequeña pausa anti-spam de errores
                 }
             }
         }
@@ -597,13 +577,3 @@ namespace MyOwnACR
         }
     }
 }
-
-// ==================================================================================
-// RECORDATORIO: CÓMO ENVIAR LOGS A LA CONSOLA WEB
-// ==================================================================================
-// Desde cualquier parte del código (Logic, Eventos, etc.), usa:
-// Plugin.Instance.SendLog("Tu mensaje aquí");
-
-// Ejemplos prácticos:
-// Plugin.Instance.SendLog($"Detectado Boss con HP: {hp}%");
-// Plugin.Instance.SendLog("Iniciando fase de Burst (Riddle of Fire)");
