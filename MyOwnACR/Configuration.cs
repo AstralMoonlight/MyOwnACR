@@ -42,9 +42,16 @@ namespace MyOwnACR
         public bool UseBrotherhood { get; set; } = true;
         public bool UseForbiddenChakra { get; set; } = true;
 
+        
+        // --- CONFIGURACIÓN DE POCIONES ---
+        public bool UsePotion { get; set; } = false; // Toggle Master
+        public uint SelectedPotionId { get; set; } = 0; // ID de la poción elegida
+
+
         // --- CONFIGURACIÓN DE OPENER ---
         public bool UseOpener { get; set; } = false;
         public string SelectedOpener { get; set; } = "Ninguno";
+    
     }
 
     /// <summary>

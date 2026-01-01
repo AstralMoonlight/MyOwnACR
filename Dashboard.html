@@ -11,23 +11,19 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <style>
-        /* Prevención de comportamientos táctiles no deseados en móviles */
         body {
             overscroll-behavior: none;
             touch-action: manipulation;
             user-select: none;
             transition: border-color 0.3s ease;
             border-left: 8px solid #ef4444;
-            /* Rojo: Detenido */
             border-right: 8px solid #ef4444;
         }
 
-        /* Clase activa: Verde Cian */
         .border-active {
             border-color: #58bfbf !important;
         }
 
-        /* Ocultar scrollbar visualmente pero permitir scroll (Global) */
         .no-scrollbar::-webkit-scrollbar {
             display: none;
         }
@@ -37,7 +33,6 @@
             scrollbar-width: none;
         }
 
-        /* Estilos para botones de acción manual */
         .btn-force {
             transition: all 0.1s;
             border-bottom: 4px solid rgba(0, 0, 0, 0.1);
@@ -54,7 +49,6 @@
             border-bottom: 0px;
         }
 
-        /* Animación para indicar acción en cola */
         .btn-queued {
             background-color: #fbbd23 !important;
             color: black !important;
@@ -74,13 +68,11 @@
             }
         }
 
-        /* Scroll personalizado para el modal de config */
         .config-scroll {
             max-height: 50vh;
             overflow-y: auto;
         }
 
-        /* Estilos Consola Debug */
         .console-line {
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
             padding: 2px 0;
@@ -90,7 +82,6 @@
             border-bottom: none;
         }
 
-        /* Scrollbar visible para la consola (Estilo oscuro) */
         #debug-console::-webkit-scrollbar {
             width: 8px;
         }
@@ -118,7 +109,12 @@
             <div class="flex items-center gap-2 px-2">
                 <i class="fa-solid fa-ghost text-2xl text-primary"></i>
                 <div class="flex flex-col leading-none">
-                    <span class="font-black text-lg tracking-widest">MYOWN<span class="text-primary">ACR</span></span>
+                    <div class="flex items-baseline gap-2">
+                        <span class="font-black text-lg tracking-widest">MYOWN<span
+                                class="text-primary">ACR</span></span>
+                        <span id="header-job"
+                            class="badge badge-outline badge-primary badge-sm font-mono opacity-0 transition-opacity duration-500">...</span>
+                    </div>
                     <span class="text-[0.6rem] opacity-60 uppercase font-bold text-error"
                         id="connection-status">Desconectado</span>
                 </div>
@@ -202,6 +198,30 @@
                         <select id="opener_select" class="select select-sm select-bordered w-full font-mono text-xs"
                             onchange="updateOps()">
                             <option value="Ninguno">Ninguno</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card bg-base-100 shadow-sm border border-secondary/20">
+                <div class="card-body p-4">
+                    <h3 class="text-xs font-black opacity-50 uppercase mb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-flask text-secondary"></i> Potion Selector
+                    </h3>
+
+                    <div class="form-control mb-2">
+                        <label class="label cursor-pointer justify-between bg-base-200 rounded-lg px-3 py-2">
+                            <span class="label-text font-bold">Usar en Opener</span>
+                            <input type="checkbox" class="toggle toggle-secondary toggle-sm" id="op_usepotion"
+                                onchange="updateOps()" />
+                        </label>
+                    </div>
+
+                    <div class="form-control">
+                        <label class="label"><span class="label-text text-xs">Poción Seleccionada</span></label>
+                        <select id="potion_select" class="select select-sm select-bordered w-full font-mono text-xs"
+                            onchange="updateOps()">
+                            <option value="0">Cargando...</option>
                         </select>
                     </div>
                 </div>
@@ -422,8 +442,9 @@
 
     <script>
         const HOST = "127.0.0.1:5055";
-        let ws; // Mover ws a variable global modificable
+        let ws;
         let currentConfig = {};
+        let lastJobId = -1; // Para detectar cambios de clase
 
         // === DEFINICIONES ===
         const BARS = { 0: "Base", 1: "Ctrl", 2: "Shift", 3: "Alt", 4: "Ctrl+Alt" };
@@ -440,6 +461,14 @@
             53: "Bootshine", 54: "True Strike", 56: "Snap Punch", 74: "Dragon Kick",
             61: "Twin Snakes", 66: "Demolish", 36945: "Leaping Opo", 36946: "Rising Raptor",
             36947: "Pouncing Coeurl", 25764: "Blitz", 110: "Perfect Bal.", 7396: "Riddle Fire"
+        };
+
+        // MAPEO DE NOMBRES DE CLASES
+        const JOB_NAMES = {
+            19: "PLD", 20: "MNK", 21: "WAR", 22: "DRG", 23: "BRD", 24: "WHM", 25: "BLM",
+            26: "ACN", 27: "SMN", 28: "SCH", 29: "ROG", 30: "NIN", 31: "MCH", 32: "DRK",
+            33: "AST", 34: "SAM", 35: "RDM", 36: "BLU", 37: "GNB", 38: "DNC", 39: "RPR",
+            40: "SGE", 41: "VPR", 42: "PCT"
         };
 
         // === INICIALIZACIÓN ===
@@ -460,52 +489,62 @@
                 document.getElementById("connection-status").classList.replace("text-error", "text-success");
                 document.getElementById("connection-status").classList.replace("text-warning", "text-success");
 
-                // Pedimos Configuración y Lista de Openers al conectar
                 sendJson("get_config");
                 sendJson("get_openers");
-
-                //addLog("Sistema conectado al servidor.");
+                // Solicitaremos pociones dinámicamente cuando detectemos el job
             };
 
             ws.onclose = () => {
                 document.getElementById("connection-status").innerText = "RECONECTANDO...";
                 document.getElementById("connection-status").classList.remove("text-success", "text-error");
                 document.getElementById("connection-status").classList.add("text-warning");
-
-                // Intentar reconectar en 2 segundos
                 setTimeout(connect, 2000);
             };
 
             ws.onerror = (err) => {
                 console.error("WebSocket error:", err);
-                ws.close(); // Forzar cierre para gatillar onclose y reintento
+                ws.close();
             };
 
             ws.onmessage = (e) => {
                 try {
                     const msg = JSON.parse(e.data);
-
                     if (msg.type === "status") updateDashboard(msg.data);
                     if (msg.type === "config_data") loadConfigToUI(msg.data);
                     if (msg.type === "log") addLog(msg.data);
-                    if (msg.type === "opener_list") loadOpenerList(msg.data); // CARGAR LISTA
+                    if (msg.type === "opener_list") loadOpenerList(msg.data);
+                    if (msg.type === "potion_list") loadPotionList(msg.data);
                 } catch (err) {
                     console.error("Error parsing message:", err);
                 }
             };
         }
 
-        // Iniciar conexión
         connect();
 
         // === FUNCIONES DE UI ===
         function updateDashboard(d) {
             try {
-                // Actualizar Borde visual de Estado
                 if (d.is_running) {
                     document.body.classList.add("border-active");
                 } else {
                     document.body.classList.remove("border-active");
+                }
+
+                // DETECCION DE CAMBIO DE CLASE
+                if (d.job && d.job !== lastJobId) {
+                    lastJobId = d.job;
+
+                    // Actualizar Header
+                    const jobName = JOB_NAMES[d.job] || "UNK";
+                    const badge = document.getElementById("header-job");
+                    badge.innerText = jobName;
+                    badge.classList.remove("opacity-0");
+
+                    // Pedir lista de pociones nueva para esta clase
+                    sendJson("get_potions");
+
+                    // AQUÍ IRÁ LA LÓGICA FUTURA PARA MOSTRAR/OCULTAR PANELES POR CLASE
                 }
 
                 document.getElementById("target").innerText = d.target || "--";
@@ -533,34 +572,30 @@
         function loadConfigToUI(cfg) {
             currentConfig = cfg;
 
-            // Configuración de Operaciones
             if (cfg.Operation) {
                 const op = cfg.Operation;
                 setCheck("op_aoe", op.AoE_Enabled); setCheck("op_truenorth", op.TrueNorth_Auto); setCheck("op_savecd", op.SaveCD);
                 setCheck("op_pb", op.UsePB); setCheck("op_rof", op.UseRoF); setCheck("op_bh", op.UseBrotherhood);
                 setCheck("op_row", op.UseRoW); setCheck("op_fc", op.UseForbiddenChakra);
-
-                // NUEVO: Cargar estado de Memory Input
                 setCheck("op_memory", op.UseMemoryInput);
-
-                // NUEVO: Cargar estado de Opener
                 setCheck("op_useopener", op.UseOpener);
-                // Intentar setear el valor si la lista ya cargó, sino se seteará en loadOpenerList
                 const sel = document.getElementById("opener_select");
                 if (sel && op.SelectedOpener) sel.value = op.SelectedOpener;
+
+                // Carga de Configuración de Pociones
+                setCheck("op_usepotion", op.UsePotion);
+                const pSel = document.getElementById("potion_select");
+                if (pSel && op.SelectedPotionId) pSel.value = op.SelectedPotionId;
             }
 
-            // Configuración Global
             if (cfg.Global) hotkeySelect.value = cfg.Global.ToggleKey;
 
-            // Configuración de Supervivencia
             if (cfg.Survival) {
                 setCheck("surv_enable", cfg.Survival.Enabled);
                 setVal("surv_sw", cfg.Survival.MinHp_SecondWind);
                 setVal("surv_bb", cfg.Survival.MinHp_Bloodbath);
             }
 
-            // Configuración del Monk
             if (cfg.Monk) {
                 setCheck("weave_double", cfg.Monk.EnableDoubleWeave);
                 setVal("weave_pref", cfg.Monk.SingleWeaveSlotPreference);
@@ -570,16 +605,12 @@
 
                 const container = document.getElementById("skill-list");
                 container.innerHTML = "";
-
                 const sortedSkills = Object.keys(cfg.Monk).sort();
-
                 sortedSkills.forEach(skill => {
                     const bind = cfg.Monk[skill];
-
                     if (bind && typeof bind.Key !== 'undefined' && typeof bind.Bar !== 'undefined') {
                         const card = document.createElement("div");
                         card.className = "flex flex-col bg-base-200/50 p-2 rounded-lg border border-base-content/5 hover:border-base-content/20 transition-colors";
-
                         card.innerHTML = `
                             <div class="flex justify-between items-center mb-1">
                                 <span class="text-[0.7rem] font-bold uppercase opacity-70 truncate w-full" title="${skill}">
@@ -602,9 +633,7 @@
 
         function loadOpenerList(list) {
             const sel = document.getElementById("opener_select");
-            // Guardamos el valor actual por si ya estaba seleccionado
             const currentFromConfig = (currentConfig && currentConfig.Operation) ? currentConfig.Operation.SelectedOpener : "Ninguno";
-
             sel.innerHTML = '<option value="Ninguno">Ninguno</option>';
             list.forEach(name => {
                 const opt = document.createElement("option");
@@ -612,21 +641,30 @@
                 opt.innerText = name;
                 sel.appendChild(opt);
             });
+            if (currentFromConfig) sel.value = currentFromConfig;
+        }
 
+        function loadPotionList(list) {
+            const sel = document.getElementById("potion_select");
+            const currentFromConfig = (currentConfig && currentConfig.Operation) ? currentConfig.Operation.SelectedPotionId : 0;
+            sel.innerHTML = '<option value="0">Ninguna</option>';
+            list.forEach(p => {
+                const opt = document.createElement("option");
+                opt.value = p.Id;
+                opt.innerText = p.Name;
+                sel.appendChild(opt);
+            });
             // Restaurar selección desde config
             if (currentFromConfig) sel.value = currentFromConfig;
         }
 
-        // === FUNCIONES DE CONSOLA ===
         function addLog(text, colorClass = "") {
             const c = document.getElementById("debug-console");
             if (c.firstElementChild && c.firstElementChild.classList.contains('italic')) c.innerHTML = "";
-
             const line = document.createElement("div");
             line.className = `console-line ${colorClass}`;
             const time = new Date().toLocaleTimeString().split(' ')[0];
             line.innerHTML = `<span class="opacity-40 text-[0.6rem] mr-2 font-bold">[${time}]</span>${text}`;
-
             c.appendChild(line);
             c.scrollTop = c.scrollHeight;
             if (c.children.length > 50) c.removeChild(c.firstChild);
@@ -647,7 +685,6 @@
             });
         }
 
-        // === HELPERS DE GUARDADO Y ENVÍO ===
         function saveAllSettings() {
             const survData = {
                 Enabled: getCheck("surv_enable"),
@@ -679,9 +716,8 @@
 
         function toggleBot(state) {
             sendJson(state ? 'START' : 'STOP');
-            // Nota: El log "Bot INICIADO" se confirma cuando el plugin manda el estado, 
-            // pero lo ponemos aquí para feedback inmediato.
         }
+
         function forceAction(btn) {
             if (navigator.vibrate) navigator.vibrate(50);
             const action = btn.getAttribute('data-action');
@@ -695,10 +731,12 @@
                 UsePB: getCheck("op_pb"), UseRoF: getCheck("op_rof"), UseBrotherhood: getCheck("op_bh"),
                 UseRoW: getCheck("op_row"), UseForbiddenChakra: getCheck("op_fc"),
                 UseMemoryInput: getCheck("op_memory"),
-
-                // NUEVO: Configuración de Opener
                 UseOpener: getCheck("op_useopener"),
-                SelectedOpener: document.getElementById("opener_select").value
+                SelectedOpener: document.getElementById("opener_select").value,
+
+                // NUEVO: Envío de Config de Pociones
+                UsePotion: getCheck("op_usepotion"),
+                SelectedPotionId: parseInt(document.getElementById("potion_select").value) || 0
             };
             sendJson("save_operation", data);
             addLog("Ajustes operativos actualizados");
@@ -708,7 +746,7 @@
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ cmd: cmd, data: data }));
             } else {
-                addLog("Error: No hay conexión con el Plugin", "text-error");
+                //addLog("Error: No hay conexión con el Plugin", "text-error");
             }
         }
         function getCheck(id) { const el = document.getElementById(id); return el ? el.checked : false; }

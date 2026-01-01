@@ -1,6 +1,6 @@
 // Archivo: MyOwnACR/Plugin.cs
 // Descripción: Clase principal del Plugin.
-// VERSION: Production Ready + Robust WebSocket + Opener Support + Aggressive Dispose.
+// VERSION: Production Ready + Thread Safety Fix (GetPotions).
 
 using Dalamud.Game.Command;
 using Dalamud.IoC;
@@ -26,6 +26,7 @@ using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Game.ClientState.JobGauge.Types;
 using Lumina.Excel.Sheets;
 using MyOwnACR.GameData;
+using System.Linq; // Necesario para Select y ToList
 
 namespace MyOwnACR
 {
@@ -564,9 +565,36 @@ namespace MyOwnACR
                 }
                 else if (type == "get_openers")
                 {
-                    // Enviar lista de archivos JSON encontrados al Dashboard
                     var list = Logic.OpenerManager.Instance.GetOpenerNames();
                     _ = SendJsonAsync("opener_list", list);
+                }
+                else if (type == "get_potions")
+                {
+                    // FIX CRÍTICO: Ejecutar acceso a memoria del juego en el Hilo Principal (Framework)
+                    Framework.RunOnTick(() =>
+                    {
+                        try
+                        {
+                            var player = ObjectTable.LocalPlayer;
+                            if (player != null)
+                            {
+                                uint jobId = player.ClassJob.RowId;
+                                var mainStat = GameData.JobPotionMapping.GetMainStat(jobId);
+                                var potionsDict = GameData.Potion_IDs.GetListForStat(mainStat);
+
+                                var list = potionsDict
+                                    .Select(kv => new { Name = kv.Key, Id = kv.Value })
+                                    .ToList();
+
+                                _ = SendJsonAsync("potion_list", list);
+                            }
+                            else
+                            {
+                                _ = SendJsonAsync("potion_list", new object[] { });
+                            }
+                        }
+                        catch (Exception ex) { Log.Error(ex, "Error getting potions on main thread"); }
+                    });
                 }
             }
             catch (Exception ex)

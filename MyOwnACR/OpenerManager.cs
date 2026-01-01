@@ -5,6 +5,7 @@ using FFXIVClientStructs.FFXIV.Client.Game;
 using MyOwnACR.JobConfigs;
 using MyOwnACR.Openers;
 using Newtonsoft.Json;
+using Serilog;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -83,11 +84,12 @@ namespace MyOwnACR.Logic
 
         public void Reset() => Stop();
 
-        // CAMBIO IMPORTANTE: AHORA RECIBIMOS 'player' PARA CHEQUEAR BUFFS
+        // CAMBIO: Aceptamos 'object' en config para hacerlo genérico
         public unsafe (uint actionId, KeyBind? bind) GetNextAction(ActionManager* am, IPlayerCharacter player, object config)
         {
             if (!IsRunning || activeProfile == null) return (0, null);
 
+            // 1. CHEQUEO DE FINALIZACIÓN
             if (CurrentStepIndex >= activeProfile.Steps.Count)
             {
                 Plugin.Instance.SendLog("[OPENER] Finalizado con éxito.");
@@ -97,15 +99,71 @@ namespace MyOwnACR.Logic
 
             var currentStep = activeProfile.Steps[CurrentStepIndex];
 
-            // 1. SALTAR POCIONES (FIX TEMPORAL)
+            // -----------------------------------------------------------------------
+            // LÓGICA DE POCIONES (INTEGRACIÓN COMPLETA)
+            // -----------------------------------------------------------------------
             if (currentStep.Name == "Potion" || currentStep.Type == "Potion")
             {
-                Plugin.Instance.SendLog($"[OPENER] Saltando paso {CurrentStepIndex + 1}: {currentStep.Name}");
-                AdvanceStep();
-                return GetNextAction(am, player, config);
-            }
+                // A. Verificar configuración del usuario (Dashboard)
+                // Accedemos a la configuración operativa global a través de la instancia del Plugin
+                var ops = Plugin.Instance.Config.Operation;
 
-            // 2. VERIFICACIÓN DE ÉXITO (Doble Check: Cooldown O Buff)
+                if (!ops.UsePotion || ops.SelectedPotionId == 0)
+                {
+                    Plugin.Instance.SendLog("[OPENER] Pociones desactivadas o ninguna seleccionada. Saltando paso.");
+                    AdvanceStep();
+                    // Llamada recursiva para procesar inmediatamente el siguiente paso real
+                    return GetNextAction(am, player, config);
+                }
+
+                uint potionId = ops.SelectedPotionId;
+
+                // B. Chequeo de Cooldown (¿Está disponible en el juego?)
+                // Si retorna false, significa que está en CD o no tenemos el ítem.
+                if (!InventoryManager.IsPotionReady(am, potionId))
+                {
+                    Plugin.Instance.SendLog($"[OPENER] Poción (ID {potionId}) en CD o no disponible. Saltando paso.");
+                    AdvanceStep();
+                    return GetNextAction(am, player, config);
+                }
+
+                // C. Chequeo de Éxito (¿Se activó el CD recientemente?)
+                // Si acabamos de intentar usarla y el juego activó el cooldown, consideramos éxito.
+                if (IsPotionRecentlyUsed(am, potionId))
+                {
+                    AdvanceStep();
+                    return GetNextAction(am, player, config);
+                }
+
+                // D. Intentar usar la poción (Con Control de Tráfico)
+                // Respetamos el ACTION_CONFIRM_WINDOW para no spamear la llamada al servidor.
+                if ((DateTime.Now - lastRequestTime).TotalSeconds > ACTION_CONFIRM_WINDOW)
+                {
+                    // InventoryManager se encarga de la inyección en memoria
+                    bool requestSent = InventoryManager.UseSpecificPotion(am, potionId);
+
+                    if (requestSent)
+                    {
+                        Plugin.Instance.SendLog($"[OPENER] Usando Poción ID {potionId}...");
+                        lastRequestTime = DateTime.Now;
+                        // Retornamos (0, null) para pausar la lógica del bot mientras el ítem se usa.
+                        // En el siguiente ciclo, IsPotionRecentlyUsed debería dar true.
+                        return (0, null);
+                    }
+                    else
+                    {
+                        Plugin.Instance.SendLog("[OPENER] Fallo al usar poción (¿Sin stock?). Saltando paso.");
+                        AdvanceStep();
+                        return GetNextAction(am, player, config);
+                    }
+                }
+
+                // Si estamos esperando confirmación, no hacemos nada.
+                return (0, null);
+            }
+            // -----------------------------------------------------------------------
+
+            // 2. VERIFICACIÓN DE ÉXITO PARA HABILIDADES (Doble Check: Cooldown O Buff)
             // Si el CD se activó O si tenemos el Buff correspondiente (para skills con cargas como PB)
             if (IsActionRecentlyUsed(am, currentStep.ActionId) || IsBuffApplied(player, currentStep.ActionId))
             {
@@ -114,6 +172,7 @@ namespace MyOwnACR.Logic
             }
 
             // 3. FAIL-SAFE (TIMEOUT)
+            // Si pasamos demasiado tiempo intentando un paso sin éxito, abortamos para no quedarnos pegados.
             if ((DateTime.Now - stepStartTime).TotalSeconds > TIMEOUT_SECONDS)
             {
                 Plugin.Instance.SendLog($"[OPENER] ABORTADO - Timeout en paso {CurrentStepIndex + 1} ({currentStep.Name})");
@@ -122,6 +181,7 @@ namespace MyOwnACR.Logic
             }
 
             // 4. RETORNAR ACCIÓN (CON ANTI-DOUBLE CAST)
+            // Si ya pedimos esta acción hace poco, esperamos.
             if (currentStep.ActionId == lastRequestedId && (DateTime.Now - lastRequestTime).TotalSeconds < ACTION_CONFIRM_WINDOW)
             {
                 return (0, null);
@@ -132,6 +192,19 @@ namespace MyOwnACR.Logic
 
             KeyBind? bind = MapKeyBind(currentStep.KeyName, config);
             return (currentStep.ActionId, bind);
+        }
+
+        /// <summary>
+        /// Verifica si una poción específica acaba de entrar en cooldown.
+        /// </summary>
+        private unsafe bool IsPotionRecentlyUsed(ActionManager* am, uint potionId)
+        {
+            float elapsed = am->GetRecastTimeElapsed(ActionType.Item, potionId);
+            float total = am->GetRecastTime(ActionType.Item, potionId);
+
+            // Las pociones tienen CD largo (4m 30s).
+            // Si el elapsed es pequeño (< 5s) y hay un total activo, es que acabamos de usarla con éxito.
+            return total > 0 && elapsed > 0 && elapsed < 5.0f;
         }
 
         // Detecta si una habilidad con cargas (como PB) aplicó su efecto
