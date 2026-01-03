@@ -1,5 +1,6 @@
 // Archivo: MyOwnACR/Configuration.cs
-// Descripción: Clase principal de configuración. Actualizada para incluir Toggle de Input de Memoria.
+// Descripción: Clase principal de configuración.
+// VERSION: Multi-Job Ready (MNK + BRD).
 
 using Dalamud.Configuration;
 using Dalamud.Plugin;
@@ -22,36 +23,37 @@ namespace MyOwnACR
 
     /// <summary>
     /// Ajustes operativos en tiempo real (Logic Toggles).
+    /// NOTA: Actualmente contiene muchos toggles específicos de Monk.
+    /// En el futuro, podríamos mover estos a JobConfig_MNK para limpiar.
     /// </summary>
     [Serializable]
     public class OperationalSettings
     {
-        // --- NUEVO: OPCIÓN DE MODO DE INPUT ---
+        // --- GENERAL ---
         // false = Simulación de Teclas (Legacy/Seguro)
         // true = Inyección Directa a Memoria (Rápido/No interfiere con chat)
         public bool UseMemoryInput { get; set; } = false;
 
         public bool AoE_Enabled { get; set; } = true;
         public bool TrueNorth_Auto { get; set; } = false;
-        public bool SixSidedStar_Use { get; set; } = false;
-
         public bool SaveCD { get; set; } = false;
+
+        // --- TOGGLES DE HABILIDADES (Monk Specific - Legacy Support) ---
+        // Se mantienen aquí por compatibilidad con el Dashboard actual del Monk
+        public bool SixSidedStar_Use { get; set; } = false;
         public bool UsePB { get; set; } = true;
         public bool UseRoF { get; set; } = true;
         public bool UseRoW { get; set; } = true;
         public bool UseBrotherhood { get; set; } = true;
         public bool UseForbiddenChakra { get; set; } = true;
 
-        
         // --- CONFIGURACIÓN DE POCIONES ---
         public bool UsePotion { get; set; } = false; // Toggle Master
         public uint SelectedPotionId { get; set; } = 0; // ID de la poción elegida
 
-
         // --- CONFIGURACIÓN DE OPENER ---
         public bool UseOpener { get; set; } = false;
         public string SelectedOpener { get; set; } = "Ninguno";
-    
     }
 
     /// <summary>
@@ -65,9 +67,13 @@ namespace MyOwnACR
         // Configuración de tecla global para Pausar/Reanudar (Default F8)
         public VirtualKey ToggleHotkey = VirtualKey.F8;
 
-        // Instancias de configuración por módulos
+        // --- CONFIGURACIONES POR JOB ---
         public JobConfig_MNK Monk = new JobConfig_MNK();
 
+        // ¡ESTO ES LO QUE FALTABA!
+        public JobConfig_BRD Bard = new JobConfig_BRD();
+
+        // --- CONFIGURACIONES GENERALES ---
         public SurvivalConfig Survival = new SurvivalConfig();
         public OperationalSettings Operation = new OperationalSettings();
 

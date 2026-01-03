@@ -29,9 +29,7 @@ namespace MyOwnACR.Logic
             // Aquí es donde añadiremos las futuras clases (DRG, VPR, etc.)
             RegisterLogic(MNK_Logic.Instance);
 
-            // Ejemplo futuro:
-            // RegisterLogic(DRG_Logic.Instance);
-            // RegisterLogic(VPR_Logic.Instance);
+            RegisterLogic(BRD_Logic.Instance);
         }
 
         private void RegisterLogic(IJobLogic logic)

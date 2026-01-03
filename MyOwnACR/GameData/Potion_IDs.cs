@@ -23,8 +23,12 @@ namespace MyOwnACR.GameData
             {
                 PotionStat.Dexterity, new Dictionary<string, uint>
                 {
-                    // Placeholder: Agregar IDs cuando los tengas
-                    { "Grade 4 Gemdraught of Dexterity (HQ)", 0 },
+                    { "Grade 4 Gemdraught of Dex (HQ)", 1049235 },
+                    { "Grade 4 Gemdraught of Dex (NQ)", 49235 },
+                    { "Grade 3 Gemdraught of Dex (HQ)", 1045996 },
+                    { "Grade 3 Gemdraught of Dex (NQ)", 45996 },
+                    { "Grade 8 Tincture of Dex (HQ)", 1039728 },
+                    { "Grade 8 Tincture of Dex (NQ)", 39728 },
                 }
             },
 

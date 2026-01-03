@@ -1,3 +1,7 @@
+// Archivo: Logic/CombatHelpers.cs
+// Descripción: Utilidades matemáticas y de targeting.
+// VERSION: Fix CS8604 (Nullable centerObj).
+
 using Dalamud.Game.ClientState.Objects.Enums;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Objects.Types;
@@ -15,12 +19,15 @@ namespace MyOwnACR.Logic
         // =========================================================================
         // CONTEO DE ENEMIGOS
         // =========================================================================
-        public static int CountAttackableEnemiesInRange(IObjectTable objectTable, IPlayerCharacter player, float range)
+
+        // FIX CS8604: Agregado '?' a 'IGameObject?' para indicar que acepta nulos explícitamente.
+        public static int CountAttackableEnemiesInRange(IObjectTable objectTable, IGameObject? centerObj, float range)
         {
-            if (player == null || objectTable == null) return 0;
+            // La validación interna ya existía, pero ahora la firma coincide con la realidad.
+            if (centerObj == null || objectTable == null) return 0;
 
             int enemyCount = 0;
-            Vector3 playerPos = player.Position;
+            Vector3 centerPos = centerObj.Position;
 
             foreach (IGameObject obj in objectTable)
             {
@@ -29,7 +36,7 @@ namespace MyOwnACR.Logic
                 if (enemy.BattleNpcKind != BattleNpcSubKind.Enemy) continue;
                 if (!enemy.IsTargetable || enemy.CurrentHp <= 0) continue;
 
-                float distance = Vector3.Distance(playerPos, enemy.Position);
+                float distance = Vector3.Distance(centerPos, enemy.Position);
 
                 if (distance <= range + enemy.HitboxRadius)
                 {
@@ -41,7 +48,7 @@ namespace MyOwnACR.Logic
         }
 
         // =========================================================================
-        // CÁLCULO DE POSICIONALES (CORREGIDO)
+        // CÁLCULO DE POSICIONALES
         // =========================================================================
         public static Position GetPosition(IPlayerCharacter player)
         {
@@ -61,12 +68,6 @@ namespace MyOwnACR.Logic
             while (relativeAngle > Math.PI) relativeAngle -= 2 * Math.PI;
 
             double absAngle = Math.Abs(relativeAngle);
-
-            // ============================================================
-            // CORRECCIÓN MATEMÁTICA:
-            // Diferencia ~0  (0.00 - 0.78 rad) = FRONT (Estamos alineados con su cara)
-            // Diferencia ~PI (2.35 - 3.14 rad) = REAR  (Estamos opuestos a su cara)
-            // ============================================================
 
             // FRONT (Frente): +/- 45 grados (0.785 rad) desde el centro
             if (absAngle <= 0.785398f) return Position.Front;
