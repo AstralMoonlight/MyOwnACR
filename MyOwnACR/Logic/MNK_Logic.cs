@@ -1,5 +1,5 @@
 // Archivo: Logic/MNK_Logic.cs
-// VERSION: Cleaned (No Warnings).
+// VERSION: Fix Solar Nadi Logic (Unique Chakras).
 
 using System;
 using System.Linq;
@@ -32,8 +32,7 @@ namespace MyOwnACR.Logic
         private const float MeleeRange = 3.5f;
         private const int AoE_Threshold = 3;
 
-        // IDE0044: Readonly porque no se reasignan fuera del constructor/inicializador
-        private readonly float actionQueueWindow = 0.6f;
+        private readonly float actionQueueWindow = 0.3f;
         private readonly float rofPrepopWindow = 6.0f;
 
         private DateTime lastAnyActionTime = DateTime.MinValue;
@@ -196,10 +195,10 @@ namespace MyOwnACR.Logic
                 }
 
                 var hasAnyForm = HasStatus(player, MNK_IDs.Status_OpoOpoForm) ||
-                                  HasStatus(player, MNK_IDs.Status_RaptorForm) ||
-                                  HasStatus(player, MNK_IDs.Status_CoeurlForm) ||
-                                  HasStatus(player, MNK_IDs.Status_FormlessFist) ||
-                                  HasStatus(player, MNK_IDs.Status_PerfectBalance);
+                                 HasStatus(player, MNK_IDs.Status_RaptorForm) ||
+                                 HasStatus(player, MNK_IDs.Status_CoeurlForm) ||
+                                 HasStatus(player, MNK_IDs.Status_FormlessFist) ||
+                                 HasStatus(player, MNK_IDs.Status_PerfectBalance);
 
                 if (lastProposedAction == MNK_IDs.FormShift && (now - lastAnyActionTime).TotalSeconds < 2.0f) hasAnyForm = true;
 
@@ -411,15 +410,31 @@ namespace MyOwnACR.Logic
                 var hasLunar = (rawNadi & 1) != 0;
                 var hasSolar = (rawNadi & 2) != 0;
 
+                // Si ya tenemos ambos, es Phantom Rush -> Spam Opo (o lo que sea más fuerte)
                 if (hasLunar && hasSolar) return GetBestOpoAction(useAoE, gauge, config, player.Level);
+
+                // Si estamos en opener con Brotherhood, generalmente spameamos Opo para Lunar
                 if (HasStatus(player, MNK_IDs.Status_Brotherhood)) return GetBestOpoAction(useAoE, gauge, config, player.Level);
+
+                // Si no tenemos Lunar, priorizamos Lunar (Spam Opo)
                 if (!hasLunar) return GetBestOpoAction(useAoE, gauge, config, player.Level);
+
+                // --- FIX SOLAR NADI ---
+                // Si tenemos Lunar pero NO Solar, necesitamos 3 chakras DISTINTOS.
                 if (hasLunar && !hasSolar)
                 {
-                    var realChakraCount = gauge.BeastChakra.Count(c => c != BeastChakra.None);
-                    if (realChakraCount == 0) return GetBestOpoAction(useAoE, gauge, config, player.Level);
-                    if (realChakraCount == 1) return GetBestRaptorAction(useAoE, gauge, config, player.Level);
-                    return GetBestCoeurlAction(useAoE, gauge, config, player.Level);
+                    // Revisamos qué chakras tenemos YA en el gauge
+                    bool hasOpo = gauge.BeastChakra.Contains(BeastChakra.OpoOpo);
+                    bool hasRaptor = gauge.BeastChakra.Contains(BeastChakra.Raptor);
+                    bool hasCoeurl = gauge.BeastChakra.Contains(BeastChakra.Coeurl);
+
+                    // Usamos el que nos falte
+                    if (!hasOpo) return GetBestOpoAction(useAoE, gauge, config, player.Level);
+                    if (!hasRaptor) return GetBestRaptorAction(useAoE, gauge, config, player.Level);
+                    if (!hasCoeurl) return GetBestCoeurlAction(useAoE, gauge, config, player.Level);
+
+                    // Fallback (no debería llegar aquí si la lógica es correcta y count < 3)
+                    return GetBestOpoAction(useAoE, gauge, config, player.Level);
                 }
             }
 
@@ -554,7 +569,7 @@ namespace MyOwnACR.Logic
                 }
                 else if (rofActive)
                 {
-                    if (rofRemains > 6.0f)
+                    if (rofRemains > 8.0f)
                     {
                         if (lastWasOpo)
                         {

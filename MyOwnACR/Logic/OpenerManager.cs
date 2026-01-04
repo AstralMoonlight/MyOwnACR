@@ -1,5 +1,5 @@
 // Archivo: Logic/OpenerManager.cs
-// VERSION: Cleaned (No Warnings).
+// VERSION: Logic Update (Dynamic Burst Shot -> Refulgent).
 
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Objects.Types;
@@ -7,6 +7,7 @@ using Dalamud.Plugin;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using MyOwnACR.JobConfigs;
 using MyOwnACR.Models;
+using MyOwnACR.GameData; // Necesario para BRD_IDs
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -100,6 +101,29 @@ namespace MyOwnACR.Logic
 
             var currentStep = activeProfile.Steps[CurrentStepIndex];
 
+            // Variables locales para manipulación dinámica
+            uint actionId = currentStep.ActionId;
+            string keyName = currentStep.KeyName;
+
+            // ==========================================================
+            // LÓGICA DINÁMICA: Sustitución de Procs (Bard)
+            // ==========================================================
+            if (actionId == BRD_IDs.BurstShot)
+            {
+                // Chequear Status: Straight Shot Ready (122) o Hawk's Eye (3861)
+                bool hasRefulgentProc = HasStatus(player, BRD_IDs.Status_StraightShotReady) ||
+                                        HasStatus(player, BRD_IDs.Status_HawksEye);
+
+                if (hasRefulgentProc)
+                {
+                    // Cambiamos la acción a Refulgent Arrow dinámicamente
+                    actionId = BRD_IDs.RefulgentArrow;
+                    keyName = "RefulgentArrow"; // Importante: Cambiar KeyName para buscar el bind correcto
+                    // Plugin.Instance.SendLog("[OPENER] Proc detectado: Burst Shot -> Refulgent Arrow");
+                }
+            }
+            // ==========================================================
+
             // LÓGICA DE POCIONES
             if (currentStep.Name == "Potion" || currentStep.Type == "Potion")
             {
@@ -148,8 +172,8 @@ namespace MyOwnACR.Logic
                 return (0, null);
             }
 
-            // 2. VERIFICACIÓN DE ÉXITO
-            if (IsActionRecentlyUsed(am, currentStep.ActionId) || IsBuffApplied(player, currentStep.ActionId))
+            // 2. VERIFICACIÓN DE ÉXITO (Usando el actionId dinámico)
+            if (IsActionRecentlyUsed(am, actionId) || IsBuffApplied(player, actionId))
             {
                 AdvanceStep();
                 return GetNextAction(am, player, config);
@@ -164,16 +188,16 @@ namespace MyOwnACR.Logic
             }
 
             // 4. ANTI-DOUBLE CAST
-            if (currentStep.ActionId == lastRequestedId && (DateTime.Now - lastRequestTime).TotalSeconds < ACTION_CONFIRM_WINDOW)
+            if (actionId == lastRequestedId && (DateTime.Now - lastRequestTime).TotalSeconds < ACTION_CONFIRM_WINDOW)
             {
                 return (0, null);
             }
 
             lastRequestTime = DateTime.Now;
-            lastRequestedId = currentStep.ActionId;
+            lastRequestedId = actionId;
 
-            var bind = MapKeyBind(currentStep.KeyName, config);
-            return (currentStep.ActionId, bind);
+            var bind = MapKeyBind(keyName, config);
+            return (actionId, bind);
         }
 
         private unsafe bool IsPotionRecentlyUsed(ActionManager* am, uint potionId)
@@ -189,10 +213,11 @@ namespace MyOwnACR.Logic
             uint expectedBuff = 0;
             switch (actionId)
             {
-                case 69: expectedBuff = 110; break;
-                case 7396: expectedBuff = 1185; break;
-                case 7395: expectedBuff = 1181; break;
-                case 25766: expectedBuff = 2687; break;
+                case 3559: expectedBuff = BRD_IDs.Status_WanderersMinuet; break;
+                case 101: expectedBuff = BRD_IDs.Status_RagingStrikes; break;
+                case 118: expectedBuff = BRD_IDs.Status_BattleVoice; break;
+                case 25785: expectedBuff = BRD_IDs.Status_RadiantFinale; break;
+                case 107: expectedBuff = BRD_IDs.Status_Barrage; break;
             }
             if (expectedBuff == 0) return false;
             foreach (var status in player.StatusList)
@@ -231,6 +256,14 @@ namespace MyOwnACR.Logic
             }
             catch { }
             return null;
+        }
+
+        // Helper para chequear estatus (Procs)
+        private bool HasStatus(IPlayerCharacter player, ushort statusId)
+        {
+            if (player == null) return false;
+            foreach (var s in player.StatusList) if (s.StatusId == statusId) return true;
+            return false;
         }
     }
 }

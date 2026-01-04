@@ -1,0 +1,27 @@
+{
+  "Name": "Bard Icy Veins - Lv100",
+  "Steps": [
+    { "Name": "Stormbite", "KeyName": "Stormbite", "ActionId": 7407 },
+    { "Name": "Wanderer's Minuet", "KeyName": "WanderersMinuet", "ActionId": 3559 },
+    { "Name": "Empyreal Arrow", "KeyName": "EmpyrealArrow", "ActionId": 3558 },
+
+    { "Name": "Caustic Bite", "KeyName": "CausticBite", "ActionId": 7406 },
+    { "Name": "Potion", "KeyName": "Pocion", "Type": "Potion", "ActionId": 0 },
+    { "Name": "Raging Strikes", "KeyName": "RagingStrikes", "ActionId": 101 },
+
+    { "Name": "Burst Shot", "KeyName": "BurstShot", "ActionId": 16495 },
+    { "Name": "Battle Voice", "KeyName": "BattleVoice", "ActionId": 118 },
+    { "Name": "Radiant Finale", "KeyName": "RadiantFinale", "ActionId": 25785 },
+
+    { "Name": "Burst Shot", "KeyName": "BurstShot", "ActionId": 16495 },
+    { "Name": "Heartbreak Shot", "KeyName": "HeartbreakShot", "ActionId": 36975 },
+
+    { "Name": "Radiant Encore", "KeyName": "RadiantEncore", "ActionId": 36977 },
+    { "Name": "Barrage", "KeyName": "Barrage", "ActionId": 107 },
+
+    { "Name": "Refulgent Arrow", "KeyName": "RefulgentArrow", "ActionId": 7409 },
+    { "Name": "Sidewinder", "KeyName": "Sidewinder", "ActionId": 3562 },
+
+    { "Name": "Resonant Arrow", "KeyName": "ResonantArrow", "ActionId": 36976 }
+  ]
+}

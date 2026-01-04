@@ -1,6 +1,6 @@
 // Archivo: Logic/BRD_Logic.cs
 // Descripción: Lógica de combate para Bardo (Dawntrail 7.x).
-// VERSION: v12.0 - BURST LOCK (Block HB/PP until RF is out).
+// VERSION: v17.0 - OPENER DEBUG + TARGET FIXES + SAVE CD.
 
 using System;
 using System.Linq;
@@ -27,11 +27,15 @@ namespace MyOwnACR.Logic
 
         private DateTime lastActionTime = DateTime.MinValue;
         private DateTime lastIronJawsTime = DateTime.MinValue;
+        private DateTime lastSongTime = DateTime.MinValue;
         private DateTime lastDebugTime = DateTime.MinValue;
         private bool isDebugFrame = false;
 
+        // Estado de combate previo
+        private bool wasInCombat = false;
+
         public void QueueManualAction(string actionName) { }
-        public string GetQueuedAction() => "v12.0 LOCKED";
+        public string GetQueuedAction() => OpenerManager.Instance.IsRunning ? "OPENER RUNNING" : "AUTO";
         public void PrintDebugInfo(IChatGui chat) { }
 
         // =========================================================================
@@ -42,19 +46,110 @@ namespace MyOwnACR.Logic
             if (am == null || player == null) return;
 
             bool inCombat = Plugin.Condition?[Dalamud.Game.ClientState.Conditions.ConditionFlag.InCombat] ?? false;
-            if (!inCombat) return;
+            var op = config.Operation;
+            var brdConfig = config.Bard;
 
-            if (player.TargetObject == null) return;
-            ulong targetId = player.TargetObject.GameObjectId;
+            // =================================================================================
+            // 0. AUTO-START OPENER (Con Logs de Debug)
+            // =================================================================================
+            if (inCombat && !wasInCombat)
+            {
+                Plugin.Instance.SendLog($"[DEBUG] Entrada en Combate detectada.");
+
+                if (op.UseOpener)
+                {
+                    Plugin.Instance.SendLog($"[DEBUG] Intentando iniciar Opener: '{op.SelectedOpener}'");
+                    if (!string.IsNullOrEmpty(op.SelectedOpener) && op.SelectedOpener != "Ninguno")
+                    {
+                        OpenerManager.Instance.SelectOpener(op.SelectedOpener);
+                        OpenerManager.Instance.Start();
+                    }
+                    else
+                    {
+                        Plugin.Instance.SendLog("[DEBUG] Error: Opener seleccionado es nulo o 'Ninguno'.");
+                    }
+                }
+            }
+            wasInCombat = inCombat;
+
+            // =================================================================================
+            // 1. EJECUCIÓN DE OPENER
+            // =================================================================================
+            if (OpenerManager.Instance.IsRunning)
+            {
+                var (opActionId, opBind) = OpenerManager.Instance.GetNextAction(am, player, brdConfig);
+
+                if (opActionId != 0)
+                {
+                    // Determinar target correcto:
+                    // Si es Canción o Buff -> Self. Si es ataque -> Target.
+                    ulong opTargetId = player.GameObjectId; // Default Self
+
+                    bool isSelfBuff = BRD_IDs.IsSong(opActionId) ||
+                                      opActionId == BRD_IDs.RagingStrikes ||
+                                      opActionId == BRD_IDs.BattleVoice ||
+                                      opActionId == BRD_IDs.RadiantFinale ||
+                                      opActionId == BRD_IDs.Barrage;
+
+                    if (!isSelfBuff && player.TargetObject != null)
+                    {
+                        opTargetId = player.TargetObject.GameObjectId;
+                    }
+
+                    ExecuteAction(am, opActionId, opTargetId, op.UseMemoryInput);
+                    return;
+                }
+
+                if (OpenerManager.Instance.IsRunning) return; // Esperando tiempo
+            }
+
+            // =================================================================================
+            // ROTACIÓN NORMAL
+            // =================================================================================
+
+            if (!inCombat) return;
 
             var now = DateTime.Now;
             isDebugFrame = (now - lastDebugTime).TotalSeconds > 2.0;
             if (isDebugFrame) lastDebugTime = now;
 
+            var gauge = Plugin.JobGauges.Get<BRDGauge>();
+
+            // 2. GESTIÓN DE CANCIONES (PRIORIDAD GLOBAL & TARGETLESS)
+            if (brdConfig.AutoSong && !op.SaveCD)
+            {
+                if ((now - lastSongTime).TotalSeconds > 2.0)
+                {
+                    var nextSongId = CheckSongRotationSmart(am, gauge, brdConfig);
+
+                    if (nextSongId != 0)
+                    {
+                        bool safeToSing = true;
+                        if (nextSongId == BRD_IDs.WanderersMinuet && player.TargetObject != null)
+                        {
+                            float songGcdElapsed = am->GetRecastTimeElapsed(ActionType.Action, BRD_IDs.BurstShot);
+                            if (songGcdElapsed < 1.1f) safeToSing = false;
+                        }
+
+                        if (safeToSing && CanUse(am, nextSongId))
+                        {
+                            Plugin.Instance.SendLog($"[SONG] Activando -> {nextSongId}");
+                            ExecuteAction(am, nextSongId, player.GameObjectId, op.UseMemoryInput);
+                            lastSongTime = now;
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // 3. VALIDACIÓN DE TARGET
+            if (player.TargetObject == null) return;
+            ulong targetId = player.TargetObject.GameObjectId;
+
             // Anti-Spam (200ms)
             if ((now - lastActionTime).TotalMilliseconds < 200) return;
 
-            // 2. CHEQUEO DE GCD
+            // 4. CHEQUEO DE GCD
             float gcdTotal = am->GetRecastTime(ActionType.Action, BRD_IDs.BurstShot);
             float gcdElapsed = am->GetRecastTimeElapsed(ActionType.Action, BRD_IDs.BurstShot);
             float gcdRem = (gcdTotal > 0) ? Math.Max(0, gcdTotal - gcdElapsed) : 0;
@@ -63,48 +158,44 @@ namespace MyOwnACR.Logic
             {
                 // --- GCD LOGIC ---
                 var (hasStorm, hasCaustic, stormTime, causticTime) = GetTargetDotStatus(player);
-                bool ironJawsSafe = (now - lastIronJawsTime).TotalSeconds > 4.0;
-
-                float rsRem = GetStatusTime(player, BRD_IDs.Status_RagingStrikes);
-                float bvRem = GetStatusTime(player, BRD_IDs.Status_BattleVoice);
-                string buffInfo = $"RS:{rsRem:F0} BV:{bvRem:F0}";
+                bool ironJawsSafe = (now - lastIronJawsTime).TotalSeconds > 2.0;
 
                 // A. BLAST ARROW
                 if (HasStatus(player, BRD_IDs.Status_BlastArrowReady))
                 {
-                    Plugin.Instance.SendLog($"[GCD] Blast Arrow | {buffInfo}");
-                    am->UseAction(ActionType.Action, BRD_IDs.BlastArrow, targetId);
-                    UpdateState(BRD_IDs.BlastArrow);
+                    Plugin.Instance.SendLog("[GCD] Blast Arrow");
+                    ExecuteAction(am, BRD_IDs.BlastArrow, targetId, op.UseMemoryInput);
                     return;
                 }
 
                 // B. DOTS (Snapshot + Refresh)
-                if (hasStorm && hasCaustic && ironJawsSafe)
+                if (hasStorm && hasCaustic)
                 {
-                    bool isSnapshotWindow = rsRem > 0 && rsRem < 4.0f;
+                    float rsTime = GetStatusTime(player, BRD_IDs.Status_RagingStrikes);
+                    bool isSnapshotWindow = rsTime > 0 && rsTime < 3.5f;
                     bool isFallingOff = stormTime < 6.0f || causticTime < 6.0f;
 
-                    if (isSnapshotWindow || isFallingOff)
+                    if ((isSnapshotWindow || isFallingOff) && ironJawsSafe)
                     {
                         string reason = isSnapshotWindow ? "Snapshot" : "Refresh";
-                        Plugin.Instance.SendLog($"[GCD] Iron Jaws [{reason}] | {buffInfo}");
-                        am->UseAction(ActionType.Action, BRD_IDs.IronJaws, targetId);
+                        Plugin.Instance.SendLog($"[GCD] Iron Jaws [{reason}]");
+                        ExecuteAction(am, BRD_IDs.IronJaws, targetId, op.UseMemoryInput);
                         UpdateState(BRD_IDs.IronJaws);
                         return;
                     }
                 }
-                else if ((!hasStorm || !hasCaustic) && ironJawsSafe)
+                else if (ironJawsSafe)
                 {
                     if (!hasStorm)
                     {
-                        am->UseAction(ActionType.Action, BRD_IDs.Stormbite, targetId);
-                        UpdateState(BRD_IDs.Stormbite);
+                        Plugin.Instance.SendLog("[GCD] Stormbite (Missing)");
+                        ExecuteAction(am, BRD_IDs.Stormbite, targetId, op.UseMemoryInput);
                         return;
                     }
                     if (!hasCaustic)
                     {
-                        am->UseAction(ActionType.Action, BRD_IDs.CausticBite, targetId);
-                        UpdateState(BRD_IDs.CausticBite);
+                        Plugin.Instance.SendLog("[GCD] Caustic Bite (Missing)");
+                        ExecuteAction(am, BRD_IDs.CausticBite, targetId, op.UseMemoryInput);
                         return;
                     }
                 }
@@ -112,9 +203,8 @@ namespace MyOwnACR.Logic
                 // C. RESONANT ARROW
                 if (HasStatus(player, BRD_IDs.Status_ResonantArrowReady))
                 {
-                    Plugin.Instance.SendLog($"[GCD] Resonant Arrow | {buffInfo}");
-                    am->UseAction(ActionType.Action, BRD_IDs.ResonantArrow, targetId);
-                    UpdateState(BRD_IDs.ResonantArrow);
+                    Plugin.Instance.SendLog("[GCD] Resonant Arrow");
+                    ExecuteAction(am, BRD_IDs.ResonantArrow, targetId, op.UseMemoryInput);
                     return;
                 }
 
@@ -129,23 +219,20 @@ namespace MyOwnACR.Logic
 
                     if (fullBurst || procTime < 5.0f)
                     {
-                        Plugin.Instance.SendLog($"[GCD] Radiant Encore | {buffInfo}");
-                        am->UseAction(ActionType.Action, BRD_IDs.RadiantEncore, targetId);
-                        UpdateState(BRD_IDs.RadiantEncore);
+                        Plugin.Instance.SendLog("[GCD] Radiant Encore");
+                        ExecuteAction(am, BRD_IDs.RadiantEncore, targetId, op.UseMemoryInput);
                         return;
                     }
                 }
 
                 // E. APEX ARROW
-                var gauge = Plugin.JobGauges.Get<BRDGauge>();
                 bool ragingActive = HasStatus(player, BRD_IDs.Status_RagingStrikes);
                 bool useApex = (ragingActive && gauge.SoulVoice >= 80) || (gauge.SoulVoice == 100);
 
                 if (useApex)
                 {
                     Plugin.Instance.SendLog($"[GCD] Apex Arrow (SV:{gauge.SoulVoice})");
-                    am->UseAction(ActionType.Action, BRD_IDs.ApexArrow, targetId);
-                    UpdateState(BRD_IDs.ApexArrow);
+                    ExecuteAction(am, BRD_IDs.ApexArrow, targetId, op.UseMemoryInput);
                     return;
                 }
 
@@ -155,195 +242,159 @@ namespace MyOwnACR.Logic
 
                 if (hasProc)
                 {
-                    am->UseAction(ActionType.Action, BRD_IDs.RefulgentArrow, targetId);
-                    UpdateState(BRD_IDs.RefulgentArrow);
+                    ExecuteAction(am, BRD_IDs.RefulgentArrow, targetId, op.UseMemoryInput);
                 }
                 else
                 {
-                    am->UseAction(ActionType.Action, BRD_IDs.BurstShot, targetId);
-                    UpdateState(BRD_IDs.BurstShot);
+                    ExecuteAction(am, BRD_IDs.BurstShot, targetId, op.UseMemoryInput);
                 }
             }
             else
             {
-                // oGCD
-                TryFireOgcds(am, player, targetId, config.Bard);
+                // 5. CHEQUEO DE oGCD
+                TryFireOgcds(am, player, targetId, config);
             }
         }
 
-        private unsafe void TryFireOgcds(ActionManager* am, IPlayerCharacter player, ulong targetId, JobConfig_BRD config)
+        private unsafe void TryFireOgcds(ActionManager* am, IPlayerCharacter player, ulong targetId, Configuration config)
         {
             var gauge = Plugin.JobGauges.Get<BRDGauge>();
+            var brdConfig = config.Bard;
+            var op = config.Operation;
+
             bool inMinuet = gauge.Song == Song.Wanderer;
             float songTimer = gauge.SongTimer / 1000f;
-            float gcdElapsed = am->GetRecastTimeElapsed(ActionType.Action, BRD_IDs.BurstShot);
 
-            // ===================================================================
-            // 0. PITCH PERFECT DUMP (ANTES DE CAMBIAR CANCIÓN)
-            // ===================================================================
+            // -1. PITCH PERFECT (3 STACKS - PRIO)
+            if (inMinuet && gauge.Repertoire == 3)
+            {
+                if (CanUse(am, BRD_IDs.PitchPerfect))
+                {
+                    Plugin.Instance.SendLog("[oGCD] Pitch Perfect (3 Stacks)");
+                    ExecuteAction(am, BRD_IDs.PitchPerfect, targetId, op.UseMemoryInput);
+                    return;
+                }
+            }
+
+            // 0. MODO SAVE CD
+            if (op.SaveCD)
+            {
+                if (GetCharges(am, BRD_IDs.HeartbreakShot) == 3 && CanUse(am, BRD_IDs.HeartbreakShot))
+                {
+                    Plugin.Instance.SendLog("[oGCD] Heartbreak (SaveCD Cap)");
+                    ExecuteAction(am, BRD_IDs.HeartbreakShot, targetId, op.UseMemoryInput);
+                }
+                return;
+            }
+
+            // 1. PITCH PERFECT DUMP
             if (inMinuet && songTimer < 3.5f && gauge.Repertoire > 0)
             {
-                if (am->GetActionStatus(ActionType.Action, BRD_IDs.PitchPerfect) == 0)
+                if (CanUse(am, BRD_IDs.PitchPerfect))
                 {
                     Plugin.Instance.SendLog($"[oGCD] Pitch Perfect Dump");
-                    am->UseAction(ActionType.Action, BRD_IDs.PitchPerfect, targetId);
-                    UpdateState(BRD_IDs.PitchPerfect);
+                    ExecuteAction(am, BRD_IDs.PitchPerfect, targetId, op.UseMemoryInput);
                     return;
                 }
             }
 
-            // ===================================================================
-            // 1. ROTACIÓN DE CANCIONES (Late Weave Minuet)
-            // ===================================================================
-            var nextSongId = CheckSongRotation(gauge, config);
-            if (nextSongId != 0)
-            {
-                if (nextSongId == BRD_IDs.WanderersMinuet && gcdElapsed < 1.0f) return;
-
-                if (am->GetActionStatus(ActionType.Action, nextSongId) == 0)
-                {
-                    Plugin.Instance.SendLog($"[SONG] Rotando Canción -> {nextSongId}");
-                    am->UseAction(ActionType.Action, nextSongId, player.GameObjectId);
-                    UpdateState(nextSongId);
-                    return;
-                }
-            }
-
-            // ===================================================================
-            // 2. VENTANA DE BURST (LATE WEAVE RAGING -> BV -> RF)
-            // ===================================================================
-
-            // --- ESTADO DEL BURST ---
-            // Detectar si el burst está en progreso para bloquear recursos
+            // 2. VENTANA DE BURST (RS -> BV -> RF) + POCIONES
             float rsCD = GetRecastTime(am, BRD_IDs.RagingStrikes);
             float bvCD = GetRecastTime(am, BRD_IDs.BattleVoice);
             float rfCD = GetRecastTime(am, BRD_IDs.RadiantFinale);
 
             bool rsStarted = rsCD > 100.0f || HasStatus(player, BRD_IDs.Status_RagingStrikes);
-            bool rfFinished = rfCD > 100.0f; // Asumimos que si CD > 100, ya salió
-
-            // SEMÁFORO ROJO: Estamos en burst (RS activo/usado) pero RF aún no sale.
+            bool rfFinished = rfCD > 100.0f;
             bool burstLock = inMinuet && rsStarted && !rfFinished;
 
             if (inMinuet)
             {
-                // A. RAGING STRIKES
-                if (am->GetActionStatus(ActionType.Action, BRD_IDs.RagingStrikes) == 0)
+                // A. POCIÓN
+                if (op.UsePotion && op.SelectedPotionId != 0)
                 {
-                    if (gcdElapsed < 1.0f) return; // Late Weave
-                    Plugin.Instance.SendLog("[BUFF] Raging Strikes (Late)");
-                    am->UseAction(ActionType.Action, BRD_IDs.RagingStrikes, player.GameObjectId);
-                    UpdateState(BRD_IDs.RagingStrikes);
+                    if (am->GetActionStatus(ActionType.Action, BRD_IDs.RagingStrikes) == 0)
+                    {
+                        if (InventoryManager.IsPotionReady(am, op.SelectedPotionId))
+                        {
+                            Plugin.Instance.SendLog("[ITEM] Using Potion");
+                            InventoryManager.UseSpecificPotion(am, op.SelectedPotionId);
+                            UpdateState(0);
+                            return;
+                        }
+                    }
+                }
+
+                // B. RAGING STRIKES
+                if (CanUse(am, BRD_IDs.RagingStrikes))
+                {
+                    float burstGcdElapsed = am->GetRecastTimeElapsed(ActionType.Action, BRD_IDs.BurstShot);
+                    if (burstGcdElapsed < 1.0f) return;
+
+                    Plugin.Instance.SendLog("[BUFF] Raging Strikes");
+                    ExecuteAction(am, BRD_IDs.RagingStrikes, player.GameObjectId, op.UseMemoryInput);
                     return;
                 }
 
-                // B. BATTLE VOICE (Si RS ya salió)
-                if (rsStarted)
+                // C. BATTLE VOICE
+                if (rsStarted && CanUse(am, BRD_IDs.BattleVoice))
                 {
-                    if (am->GetActionStatus(ActionType.Action, BRD_IDs.BattleVoice) == 0)
-                    {
-                        Plugin.Instance.SendLog("[BUFF] Battle Voice");
-                        am->UseAction(ActionType.Action, BRD_IDs.BattleVoice, player.GameObjectId);
-                        UpdateState(BRD_IDs.BattleVoice);
-                        return;
-                    }
+                    Plugin.Instance.SendLog("[BUFF] Battle Voice");
+                    ExecuteAction(am, BRD_IDs.BattleVoice, player.GameObjectId, op.UseMemoryInput);
+                    return;
                 }
 
-                // C. RADIANT FINALE (Si BV ya salió - CD > 100)
-                if (bvCD > 100.0f)
+                // D. RADIANT FINALE
+                if (bvCD > 100.0f && CanUse(am, BRD_IDs.RadiantFinale))
                 {
-                    if (am->GetActionStatus(ActionType.Action, BRD_IDs.RadiantFinale) == 0)
-                    {
-                        Plugin.Instance.SendLog("[BUFF] Radiant Finale");
-                        am->UseAction(ActionType.Action, BRD_IDs.RadiantFinale, player.GameObjectId);
-                        UpdateState(BRD_IDs.RadiantFinale);
-                        return;
-                    }
+                    Plugin.Instance.SendLog("[BUFF] Radiant Finale");
+                    ExecuteAction(am, BRD_IDs.RadiantFinale, player.GameObjectId, op.UseMemoryInput);
+                    return;
                 }
 
-                // D. BARRAGE (Si RF ya salió o no está disponible)
-                // Usamos Barrage solo cuando el burst completo de buffs esté arriba
+                // E. BARRAGE
                 if (burstLock == false && rsStarted)
                 {
-                    if (!HasStatus(player, BRD_IDs.Status_ResonantArrowReady) &&
-                        am->GetActionStatus(ActionType.Action, BRD_IDs.Barrage) == 0)
+                    if (!HasStatus(player, BRD_IDs.Status_ResonantArrowReady) && CanUse(am, BRD_IDs.Barrage))
                     {
                         Plugin.Instance.SendLog("[BUFF] Barrage");
-                        am->UseAction(ActionType.Action, BRD_IDs.Barrage, player.GameObjectId);
-                        UpdateState(BRD_IDs.Barrage);
+                        ExecuteAction(am, BRD_IDs.Barrage, player.GameObjectId, op.UseMemoryInput);
                         return;
                     }
                 }
             }
 
-            // ===================================================================
-            // CHECKPOINT: BLOQUEO DE RECURSOS
-            // ===================================================================
-            // Si "burstLock" es true, significa que estamos construyendo los buffs.
-            // NO se permite pasar de aquí. Retornamos para esperar el siguiente frame/slot.
             if (burstLock) return;
 
-            // ===================================================================
-            // 3. RECURSOS (Solo si NO hay bloqueo)
-            // ===================================================================
-
-            if (inMinuet && gauge.Repertoire == 3)
+            // 3. RECURSOS
+            if (GetCharges(am, BRD_IDs.HeartbreakShot) == 3 && CanUse(am, BRD_IDs.HeartbreakShot))
             {
-                if (am->GetActionStatus(ActionType.Action, BRD_IDs.PitchPerfect) == 0)
-                {
-                    Plugin.Instance.SendLog("[oGCD] Pitch Perfect (3)");
-                    am->UseAction(ActionType.Action, BRD_IDs.PitchPerfect, targetId);
-                    UpdateState(BRD_IDs.PitchPerfect);
-                    return;
-                }
+                Plugin.Instance.SendLog("[oGCD] Heartbreak (Cap)");
+                ExecuteAction(am, BRD_IDs.HeartbreakShot, targetId, op.UseMemoryInput);
+                return;
             }
 
-            if (GetCharges(am, BRD_IDs.HeartbreakShot) == 3)
-            {
-                if (am->GetActionStatus(ActionType.Action, BRD_IDs.HeartbreakShot) == 0)
-                {
-                    Plugin.Instance.SendLog("[oGCD] Heartbreak (Cap)");
-                    am->UseAction(ActionType.Action, BRD_IDs.HeartbreakShot, targetId);
-                    UpdateState(BRD_IDs.HeartbreakShot);
-                    return;
-                }
-            }
-
-            // ===================================================================
             // 4. RESTO
-            // ===================================================================
-
-            // Si RS va a volver pronto (< 5s), STOP oGCDs
             if (rsCD > 0 && rsCD < 5.0f) return;
 
-            if (am->GetActionStatus(ActionType.Action, BRD_IDs.EmpyrealArrow) == 0)
+            if (CanUse(am, BRD_IDs.EmpyrealArrow))
             {
-                am->UseAction(ActionType.Action, BRD_IDs.EmpyrealArrow, targetId);
-                UpdateState(BRD_IDs.EmpyrealArrow);
+                ExecuteAction(am, BRD_IDs.EmpyrealArrow, targetId, op.UseMemoryInput);
                 return;
             }
 
             bool inBurstMode = rsStarted;
             bool holdSidewinder = rsCD > 0 && rsCD < 20.0f;
 
-            if (!holdSidewinder && am->GetActionStatus(ActionType.Action, BRD_IDs.Sidewinder) == 0)
+            if (!holdSidewinder && CanUse(am, BRD_IDs.Sidewinder))
             {
-                am->UseAction(ActionType.Action, BRD_IDs.Sidewinder, targetId);
-                UpdateState(BRD_IDs.Sidewinder);
+                ExecuteAction(am, BRD_IDs.Sidewinder, targetId, op.UseMemoryInput);
                 return;
             }
 
-            if (inMinuet)
+            if (inMinuet && songTimer < 3.0f && gauge.Repertoire > 0 && CanUse(am, BRD_IDs.PitchPerfect))
             {
-                if (songTimer < 3.0f && gauge.Repertoire > 0)
-                {
-                    if (am->GetActionStatus(ActionType.Action, BRD_IDs.PitchPerfect) == 0)
-                    {
-                        am->UseAction(ActionType.Action, BRD_IDs.PitchPerfect, targetId);
-                        UpdateState(BRD_IDs.PitchPerfect);
-                        return;
-                    }
-                }
+                ExecuteAction(am, BRD_IDs.PitchPerfect, targetId, op.UseMemoryInput);
+                return;
             }
 
             bool inBallad = gauge.Song == Song.Mage;
@@ -356,19 +407,15 @@ namespace MyOwnACR.Logic
                 if (GetCharges(am, BRD_IDs.HeartbreakShot) == 2)
                 {
                     float nextCharge = GetRecastTimeRemaining(am, BRD_IDs.HeartbreakShot);
-                    float timeToMinuet = songTimer - config.SongCutoff_Paeon;
+                    float timeToMinuet = songTimer - brdConfig.SongCutoff_Paeon;
                     if (nextCharge < timeToMinuet) shouldSpend = true;
                 }
             }
 
-            if (shouldSpend && GetCharges(am, BRD_IDs.HeartbreakShot) > 0)
+            if (shouldSpend && GetCharges(am, BRD_IDs.HeartbreakShot) > 0 && CanUse(am, BRD_IDs.HeartbreakShot))
             {
-                if (am->GetActionStatus(ActionType.Action, BRD_IDs.HeartbreakShot) == 0)
-                {
-                    am->UseAction(ActionType.Action, BRD_IDs.HeartbreakShot, targetId);
-                    UpdateState(BRD_IDs.HeartbreakShot);
-                    return;
-                }
+                ExecuteAction(am, BRD_IDs.HeartbreakShot, targetId, op.UseMemoryInput);
+                return;
             }
         }
 
@@ -376,14 +423,31 @@ namespace MyOwnACR.Logic
         // HELPERS
         // =========================================================================
 
-        private uint CheckSongRotation(BRDGauge gauge, JobConfig_BRD config)
+        private unsafe uint CheckSongRotationSmart(ActionManager* am, BRDGauge gauge, JobConfig_BRD config)
         {
             float timerSec = gauge.SongTimer / 1000f;
-            if (gauge.Song == Song.None) return BRD_IDs.WanderersMinuet;
+            if (gauge.Song == Song.None)
+            {
+                if (CanUse(am, BRD_IDs.WanderersMinuet)) return BRD_IDs.WanderersMinuet;
+                if (CanUse(am, BRD_IDs.MagesBallad)) return BRD_IDs.MagesBallad;
+                if (CanUse(am, BRD_IDs.ArmysPaeon)) return BRD_IDs.ArmysPaeon;
+                return 0;
+            }
             if (gauge.Song == Song.Wanderer && timerSec <= config.SongCutoff_Minuet) return BRD_IDs.MagesBallad;
             if (gauge.Song == Song.Mage && timerSec <= config.SongCutoff_Ballad) return BRD_IDs.ArmysPaeon;
             if (gauge.Song == Song.Army && timerSec <= config.SongCutoff_Paeon) return BRD_IDs.WanderersMinuet;
             return 0;
+        }
+
+        private unsafe void ExecuteAction(ActionManager* am, uint actionId, ulong targetId, bool useMem)
+        {
+            am->UseAction(ActionType.Action, actionId, targetId);
+            UpdateState(actionId);
+        }
+
+        private unsafe bool CanUse(ActionManager* am, uint id)
+        {
+            return am->GetActionStatus(ActionType.Action, id) == 0;
         }
 
         private void UpdateState(uint actionId)
