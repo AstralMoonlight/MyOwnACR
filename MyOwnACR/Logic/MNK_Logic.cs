@@ -1,5 +1,6 @@
 // Archivo: Logic/MNK_Logic.cs
-// VERSION: Fix Solar Nadi Logic (Unique Chakras).
+// Descripción: Lógica de combate para Monje (Dawntrail 7.x).
+// VERSION: v3.1 - Fix Opener Timeout & PB Double Cast (Sin IDs externos).
 
 using System;
 using System.Linq;
@@ -32,7 +33,7 @@ namespace MyOwnACR.Logic
         private const float MeleeRange = 3.5f;
         private const int AoE_Threshold = 3;
 
-        private readonly float actionQueueWindow = 0.3f;
+        private readonly float actionQueueWindow = 0.2f;
         private readonly float rofPrepopWindow = 6.0f;
 
         private DateTime lastAnyActionTime = DateTime.MinValue;
@@ -40,16 +41,30 @@ namespace MyOwnACR.Logic
         private DateTime lastTrueNorthTime = DateTime.MinValue;
         private DateTime lastPotionCheckTime = DateTime.MinValue;
 
+        // --- FIX: Variable para evitar doble PB en rotación ---
+        private bool pendingPB = false;
+
         private bool lastActionWasGCD = true;
         private int ogcdCount = 0;
         private bool wasInCombat = false;
 
         private string queuedManualAction = "";
 
+        // --- VARIABLES DE INYECCIÓN ---
+        private uint queuedPriorityAction = 0;
+        private DateTime queueExpirationTime = DateTime.MinValue;
+
         // IMPLEMENTACIÓN DE INTERFAZ
         public void QueueManualAction(string actionName) { queuedManualAction = actionName; }
-        public string GetQueuedAction() => queuedManualAction;
-        public void PrintDebugInfo(IChatGui chat) { /* Silenciado */ }
+        public string GetQueuedAction() => queuedPriorityAction != 0 ? $"PRIORITY: {queuedPriorityAction}" : queuedManualAction;
+        public void PrintDebugInfo(IChatGui chat) { }
+
+        public void QueueActionId(uint actionId)
+        {
+            queuedPriorityAction = actionId;
+            queueExpirationTime = DateTime.Now.AddSeconds(2.0);
+            Plugin.Instance.SendLog($"[INJECTION] Monje encolado: {actionId}");
+        }
 
         // EJECUCIÓN CENTRALIZADA
         private unsafe void ExecuteAction(
@@ -59,15 +74,30 @@ namespace MyOwnACR.Logic
             ulong targetId,
             bool useMemory)
         {
+            // --- FIX OPENER: El juego rechaza el ID de "Elixir Burst" si no tienes el buff exacto.
+            // Hay que enviar el ID base "Masterful Blitz" (25765) y el juego lo transforma.
+            if (IsBlitz(actionId))
+            {
+                actionId = MNK_IDs.MasterfulBlitz;
+            }
+
             var isGCD = ActionLibrary.IsGCD(actionId);
 
-            if (useMemory)
+            if (actionId == 3)
+            {
+                am->UseAction(ActionType.GeneralAction, 3, targetId);
+            }
+            else if (useMemory)
             {
                 am->UseAction(ActionType.Action, actionId, targetId);
             }
             else if (keyBind != null)
             {
                 InputSender.Send(keyBind.Key, keyBind.Bar, isGCD);
+            }
+            else
+            {
+                am->UseAction(ActionType.Action, actionId, targetId);
             }
 
             lastProposedAction = actionId;
@@ -101,11 +131,40 @@ namespace MyOwnACR.Logic
             var useMem = operation.UseMemoryInput;
             var inCombat = Plugin.Condition?[ConditionFlag.InCombat] ?? false;
 
+            // -1. INYECCIÓN PRIORITARIA (HOTBAR VIRTUAL)
+            if (queuedPriorityAction != 0)
+            {
+                if (DateTime.Now > queueExpirationTime)
+                {
+                    queuedPriorityAction = 0;
+                }
+                else
+                {
+                    if (CanUseRecast(am, queuedPriorityAction, 0.0f) || queuedPriorityAction == 3)
+                    {
+                        if (queuedPriorityAction == 3 && am->GetActionStatus(ActionType.GeneralAction, 3) == 0)
+                        {
+                            ExecuteAction(am, 3, null, player.GameObjectId, true);
+                            queuedPriorityAction = 0;
+                            return;
+                        }
+                        else if (am->GetActionStatus(ActionType.Action, queuedPriorityAction) == 0)
+                        {
+                            ExecuteAction(am, queuedPriorityAction, null, player.GameObjectId, true);
+                            queuedPriorityAction = 0;
+                            return;
+                        }
+                    }
+                    return;
+                }
+            }
+
             // 0. AUTO-START OPENER
             if (inCombat && !wasInCombat)
             {
                 if (operation.UseOpener && !string.IsNullOrEmpty(operation.SelectedOpener) && operation.SelectedOpener != "Ninguno")
                 {
+                    Plugin.Instance.SendLog($"[DEBUG] Auto-Start Opener: {operation.SelectedOpener}");
                     OpenerManager.Instance.SelectOpener(operation.SelectedOpener);
                     OpenerManager.Instance.Start();
                 }
@@ -119,7 +178,20 @@ namespace MyOwnACR.Logic
 
                 if (opActionId != 0)
                 {
-                    ExecuteAction(am, opActionId, opBind, targetId, useMem);
+                    // --- FIX TARGET OPENER: Buffs al Player, Ataques al Target ---
+                    // Solo usamos IDs que sabemos que existen en tu archivo.
+                    ulong opTargetId = player.GameObjectId;
+                    bool isSelfBuff = opActionId == MNK_IDs.RiddleOfFire ||
+                                      opActionId == MNK_IDs.Brotherhood ||
+                                      opActionId == MNK_IDs.RiddleOfWind ||
+                                      opActionId == MNK_IDs.RiddleOfEarth ||
+                                      opActionId == MNK_IDs.Mantra ||
+                                      opActionId == MNK_IDs.PerfectBalance ||
+                                      opActionId == MNK_IDs.FormShift;
+
+                    if (!isSelfBuff && player.TargetObject != null) opTargetId = player.TargetObject.GameObjectId;
+
+                    ExecuteAction(am, opActionId, opBind, opTargetId, useMem);
                     return;
                 }
 
@@ -380,19 +452,38 @@ namespace MyOwnACR.Logic
                 var realChakraCount = gauge.BeastChakra.Count(c => c != BeastChakra.None);
                 if (realChakraCount == 3)
                 {
-                    var specificBlitzId = GetActiveBlitzId(gauge);
 
-                    if (specificBlitzId == MNK_IDs.PhantomRush && op.UseBrotherhood)
+
+                  var specificBlitzId = GetActiveBlitzId(gauge);
+
+                    if (specificBlitzId == MNK_IDs.PhantomRush)
                     {
-                        if (player.Level >= MNK_Levels.Brotherhood)
+                        // 1. Validación Riddle of Fire
+                        // Si RoF está habilitado y desbloqueado
+                        if (op.UseRoF && player.Level >= MNK_Levels.RiddleOfFire)
+                        {
+                            var rofTotal = am->GetRecastTime(ActionType.Action, MNK_IDs.RiddleOfFire);
+                            var rofElapsed = am->GetRecastTimeElapsed(ActionType.Action, MNK_IDs.RiddleOfFire);
+                            var rofCD = (rofTotal > 0) ? Math.Max(0, rofTotal - rofElapsed) : 0;
+                            var hasRoF = HasStatus(player, MNK_IDs.Status_RiddleOfFire);
+
+                            // Si NO tenemos el buff de RoF activo, PERO el cooldown es corto (< 18s, ventana de burst),
+                            // entonces esperamos (return null) para que TryUseOgcd active RoF primero.
+                            if (!hasRoF && rofCD < 18.0f) return null;
+                        }
+
+                        // 2. Validación Brotherhood
+                        if (op.UseBrotherhood && player.Level >= MNK_Levels.Brotherhood)
                         {
                             var bhTotal = am->GetRecastTime(ActionType.Action, MNK_IDs.Brotherhood);
                             var bhElapsed = am->GetRecastTimeElapsed(ActionType.Action, MNK_IDs.Brotherhood);
                             var bhCD = (bhTotal > 0) ? Math.Max(0, bhTotal - bhElapsed) : 0;
                             var hasBhBuff = HasStatus(player, MNK_IDs.Status_Brotherhood);
 
+                            // Si NO tienes el buff y Brotherhood viene en < 15s, esperar.
                             if (!hasBhBuff && bhCD < 15.0f) return null;
                         }
+
                         return (specificBlitzId, config.PhantomRush);
                     }
 
@@ -410,30 +501,19 @@ namespace MyOwnACR.Logic
                 var hasLunar = (rawNadi & 1) != 0;
                 var hasSolar = (rawNadi & 2) != 0;
 
-                // Si ya tenemos ambos, es Phantom Rush -> Spam Opo (o lo que sea más fuerte)
                 if (hasLunar && hasSolar) return GetBestOpoAction(useAoE, gauge, config, player.Level);
-
-                // Si estamos en opener con Brotherhood, generalmente spameamos Opo para Lunar
                 if (HasStatus(player, MNK_IDs.Status_Brotherhood)) return GetBestOpoAction(useAoE, gauge, config, player.Level);
-
-                // Si no tenemos Lunar, priorizamos Lunar (Spam Opo)
                 if (!hasLunar) return GetBestOpoAction(useAoE, gauge, config, player.Level);
 
-                // --- FIX SOLAR NADI ---
-                // Si tenemos Lunar pero NO Solar, necesitamos 3 chakras DISTINTOS.
                 if (hasLunar && !hasSolar)
                 {
-                    // Revisamos qué chakras tenemos YA en el gauge
                     bool hasOpo = gauge.BeastChakra.Contains(BeastChakra.OpoOpo);
                     bool hasRaptor = gauge.BeastChakra.Contains(BeastChakra.Raptor);
                     bool hasCoeurl = gauge.BeastChakra.Contains(BeastChakra.Coeurl);
 
-                    // Usamos el que nos falte
                     if (!hasOpo) return GetBestOpoAction(useAoE, gauge, config, player.Level);
                     if (!hasRaptor) return GetBestRaptorAction(useAoE, gauge, config, player.Level);
                     if (!hasCoeurl) return GetBestCoeurlAction(useAoE, gauge, config, player.Level);
-
-                    // Fallback (no debería llegar aquí si la lógica es correcta y count < 3)
                     return GetBestOpoAction(useAoE, gauge, config, player.Level);
                 }
             }
@@ -470,6 +550,14 @@ namespace MyOwnACR.Logic
         {
             if (op.SaveCD) return false;
 
+            // --- FIX: Evitar doble cast de PB en rotación automática ---
+            if (pendingPB)
+            {
+                if (HasStatus(player, MNK_IDs.Status_PerfectBalance)) pendingPB = false;
+                else if ((DateTime.Now - lastPBTime).TotalSeconds > 1.2) pendingPB = false;
+                else return false;
+            }
+
             var gauge = GetGauge();
 
             var rofTotal = am->GetRecastTime(ActionType.Action, MNK_IDs.RiddleOfFire);
@@ -489,7 +577,7 @@ namespace MyOwnACR.Logic
                 rofRemains = 999f;
             }
 
-            // 0. POCIÓN EN ROTACIÓN
+            // --- FIX: POCIÓN EN ROTACIÓN (Estaba en tu archivo pero no hacía nada si no entraba aquí) ---
             if (op.UsePotion && op.SelectedPotionId != 0 && player.Level >= MNK_Levels.Brotherhood)
             {
                 var bhTotal = am->GetRecastTime(ActionType.Action, MNK_IDs.Brotherhood);
@@ -590,6 +678,7 @@ namespace MyOwnACR.Logic
                 {
                     ExecuteAction(am, MNK_IDs.PerfectBalance, config.PerfectBalance, targetId, useMemory);
                     lastPBTime = DateTime.Now;
+                    pendingPB = true; // Activar bloqueo
                     return true;
                 }
             }

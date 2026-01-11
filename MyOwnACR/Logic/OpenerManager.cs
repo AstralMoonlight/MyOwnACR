@@ -1,5 +1,6 @@
 // Archivo: Logic/OpenerManager.cs
-// VERSION: Logic Update (Dynamic Burst Shot -> Refulgent).
+// Descripción: Gestor de secuencias de apertura (Openers) con control de flujo inteligente.
+// VERSION: v22.1 - Fix CS0214 (Unsafe context added to helper).
 
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Objects.Types;
@@ -7,7 +8,7 @@ using Dalamud.Plugin;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using MyOwnACR.JobConfigs;
 using MyOwnACR.Models;
-using MyOwnACR.GameData; // Necesario para BRD_IDs
+using MyOwnACR.GameData;
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
@@ -17,6 +18,10 @@ using System.Reflection;
 
 namespace MyOwnACR.Logic
 {
+    /// <summary>
+    /// Gestiona la ejecución paso a paso de secuencias de combate predefinidas (Openers).
+    /// Incluye lógica de detección de éxito, manejo de pociones y control de tiempos (throttling).
+    /// </summary>
     public class OpenerManager
     {
         public bool IsRunning { get; private set; } = false;
@@ -25,19 +30,24 @@ namespace MyOwnACR.Logic
 
         private readonly List<OpenerProfile> availableOpeners = new();
         private OpenerProfile? activeProfile = null;
-        private DateTime stepStartTime;
 
-        // --- CONTROL DE TRÁFICO ---
+        private DateTime stepStartTime;
         private DateTime lastRequestTime = DateTime.MinValue;
         private uint lastRequestedId = 0;
+
+        // Freno temporal para respetar animaciones y GCDs compartidos.
+        private DateTime throttleTime = DateTime.MinValue;
+
         private const double ACTION_CONFIRM_WINDOW = 0.6;
-        private const double TIMEOUT_SECONDS = 3.0;
+        private const double TIMEOUT_SECONDS = 3.5;
 
         public static OpenerManager Instance { get; } = new OpenerManager();
-
         private OpenerManager() { }
 
-        // --- GESTIÓN DE ARCHIVOS ---
+        // =========================================================================
+        // GESTIÓN DE ARCHIVOS Y PERFILES
+        // =========================================================================
+
         public void LoadOpeners(string pluginConfigDir)
         {
             try
@@ -54,7 +64,7 @@ namespace MyOwnACR.Logic
                     var profile = JsonConvert.DeserializeObject<OpenerProfile>(content);
                     if (profile != null && profile.Steps.Count > 0) availableOpeners.Add(profile);
                 }
-                Plugin.Log.Info($"Cargados {availableOpeners.Count} openers.");
+                Plugin.Log.Info($"[OpenerManager] Cargados {availableOpeners.Count} openers.");
             }
             catch (Exception ex) { Plugin.Log.Error(ex, "Error cargando openers."); }
         }
@@ -68,6 +78,10 @@ namespace MyOwnACR.Logic
             Reset();
         }
 
+        // =========================================================================
+        // CONTROL DE ESTADO
+        // =========================================================================
+
         public void Start()
         {
             if (activeProfile == null) return;
@@ -76,7 +90,8 @@ namespace MyOwnACR.Logic
             stepStartTime = DateTime.Now;
             lastRequestTime = DateTime.MinValue;
             lastRequestedId = 0;
-            Plugin.Instance.SendLog($"[OPENER] Iniciando: {activeProfile.Name}");
+            throttleTime = DateTime.MinValue;
+            Plugin.Instance.SendLog($"[OPENER START] {activeProfile.Name}");
         }
 
         public void Stop()
@@ -87,102 +102,108 @@ namespace MyOwnACR.Logic
 
         public void Reset() => Stop();
 
+        // =========================================================================
+        // NÚCLEO DE EJECUCIÓN
+        // =========================================================================
+
         public unsafe (uint actionId, KeyBind? bind) GetNextAction(ActionManager* am, IPlayerCharacter player, object config)
         {
             if (!IsRunning || activeProfile == null) return (0, null);
 
+            // 0. THROTTLE CHECK
+            if (DateTime.Now < throttleTime) return (0, null);
+
             // 1. CHEQUEO DE FINALIZACIÓN
             if (CurrentStepIndex >= activeProfile.Steps.Count)
             {
-                Plugin.Instance.SendLog("[OPENER] Finalizado con éxito.");
+                Plugin.Instance.SendLog("[OPENER FINISH] Secuencia completada.");
                 Stop();
                 return (0, null);
             }
 
             var currentStep = activeProfile.Steps[CurrentStepIndex];
-
-            // Variables locales para manipulación dinámica
             uint actionId = currentStep.ActionId;
             string keyName = currentStep.KeyName;
 
-            // ==========================================================
-            // LÓGICA DINÁMICA: Sustitución de Procs (Bard)
-            // ==========================================================
+            // --- LÓGICA DINÁMICA (BARD PROCS) ---
             if (actionId == BRD_IDs.BurstShot)
             {
-                // Chequear Status: Straight Shot Ready (122) o Hawk's Eye (3861)
                 bool hasRefulgentProc = HasStatus(player, BRD_IDs.Status_StraightShotReady) ||
                                         HasStatus(player, BRD_IDs.Status_HawksEye);
-
                 if (hasRefulgentProc)
                 {
-                    // Cambiamos la acción a Refulgent Arrow dinámicamente
                     actionId = BRD_IDs.RefulgentArrow;
-                    keyName = "RefulgentArrow"; // Importante: Cambiar KeyName para buscar el bind correcto
-                    // Plugin.Instance.SendLog("[OPENER] Proc detectado: Burst Shot -> Refulgent Arrow");
+                    keyName = "RefulgentArrow";
                 }
             }
-            // ==========================================================
 
-            // LÓGICA DE POCIONES
+            // --- LÓGICA DE POCIONES ---
             if (currentStep.Name == "Potion" || currentStep.Type == "Potion")
             {
                 var ops = Plugin.Instance.Config.Operation;
 
+                // Si pociones están desactivadas, saltar paso
                 if (!ops.UsePotion || ops.SelectedPotionId == 0)
                 {
-                    Plugin.Instance.SendLog("[OPENER] Pociones desactivadas o ninguna seleccionada. Saltando paso.");
-                    AdvanceStep();
+                    AdvanceStep(am, 0);
                     return GetNextAction(am, player, config);
                 }
 
                 var potionId = ops.SelectedPotionId;
 
+                // Si no está lista o en CD largo, saltar paso
                 if (!InventoryManager.IsPotionReady(am, potionId))
                 {
-                    Plugin.Instance.SendLog($"[OPENER] Poción (ID {potionId}) en CD o no disponible. Saltando paso.");
-                    AdvanceStep();
+                    AdvanceStep(am, 0);
                     return GetNextAction(am, player, config);
                 }
 
+                // Si se usó recientemente, éxito
                 if (IsPotionRecentlyUsed(am, potionId))
                 {
-                    AdvanceStep();
+                    AdvanceStep(am, 1100); // Delay por animación de poción
                     return GetNextAction(am, player, config);
                 }
 
+                // Intentar usar poción
                 if ((DateTime.Now - lastRequestTime).TotalSeconds > ACTION_CONFIRM_WINDOW)
                 {
                     var requestSent = InventoryManager.UseSpecificPotion(am, potionId);
-
                     if (requestSent)
                     {
-                        Plugin.Instance.SendLog($"[OPENER] Usando Poción ID {potionId}...");
                         lastRequestTime = DateTime.Now;
-                        return (0, null);
+                        return (0, null); // Esperando confirmación
                     }
                     else
                     {
-                        Plugin.Instance.SendLog("[OPENER] Fallo al usar poción (¿Sin stock?). Saltando paso.");
-                        AdvanceStep();
+                        // Fallo al enviar (probablemente sin stock), saltar paso
+                        AdvanceStep(am, 0);
                         return GetNextAction(am, player, config);
                     }
                 }
-
                 return (0, null);
             }
 
-            // 2. VERIFICACIÓN DE ÉXITO (Usando el actionId dinámico)
-            if (IsActionRecentlyUsed(am, actionId) || IsBuffApplied(player, actionId))
+            // --- VERIFICACIÓN DE ÉXITO DE ACCIÓN ---
+
+            // 1. Buff Activo (Prioridad alta para oGCDs que aplican buffs)
+            if (IsBuffApplied(player, actionId))
             {
-                AdvanceStep();
+                AdvanceStep(am, actionId);
                 return GetNextAction(am, player, config);
             }
 
-            // 3. FAIL-SAFE
+            // 2. Cooldown Detectado (Usando ActionLibrary para manejar GCDs compartidos)
+            if (IsActionRecentlyUsed(am, actionId))
+            {
+                AdvanceStep(am, actionId);
+                return GetNextAction(am, player, config);
+            }
+
+            // 3. FAIL-SAFE (Timeout)
             if ((DateTime.Now - stepStartTime).TotalSeconds > TIMEOUT_SECONDS)
             {
-                Plugin.Instance.SendLog($"[OPENER] ABORTADO - Timeout en paso {CurrentStepIndex + 1} ({currentStep.Name})");
+                Plugin.Instance.SendLog($"[OPENER ABORT] Timeout en paso {CurrentStepIndex + 1} ({currentStep.Name}).");
                 Stop();
                 return (0, null);
             }
@@ -193,12 +214,17 @@ namespace MyOwnACR.Logic
                 return (0, null);
             }
 
+            // --- ENVIAR ACCIÓN ---
             lastRequestTime = DateTime.Now;
             lastRequestedId = actionId;
 
             var bind = MapKeyBind(keyName, config);
             return (actionId, bind);
         }
+
+        // =========================================================================
+        // HELPERS DE DETECCIÓN
+        // =========================================================================
 
         private unsafe bool IsPotionRecentlyUsed(ActionManager* am, uint potionId)
         {
@@ -213,34 +239,97 @@ namespace MyOwnACR.Logic
             uint expectedBuff = 0;
             switch (actionId)
             {
+                // BARDO
                 case 3559: expectedBuff = BRD_IDs.Status_WanderersMinuet; break;
                 case 101: expectedBuff = BRD_IDs.Status_RagingStrikes; break;
                 case 118: expectedBuff = BRD_IDs.Status_BattleVoice; break;
                 case 25785: expectedBuff = BRD_IDs.Status_RadiantFinale; break;
                 case 107: expectedBuff = BRD_IDs.Status_Barrage; break;
+
+                // MONJE
+                case MNK_IDs.RiddleOfFire: expectedBuff = MNK_IDs.Status_RiddleOfFire; break;
+                case MNK_IDs.Brotherhood: expectedBuff = MNK_IDs.Status_Brotherhood; break;
+                case MNK_IDs.RiddleOfWind: expectedBuff = MNK_IDs.Status_RiddleOfWind; break;
+                case MNK_IDs.RiddleOfEarth: expectedBuff = MNK_IDs.Status_RiddleOfEarth; break;
+                case MNK_IDs.PerfectBalance: expectedBuff = MNK_IDs.Status_PerfectBalance; break;
+                case MNK_IDs.Mantra: expectedBuff = MNK_IDs.Status_Mantra; break;
+                case MNK_IDs.FormShift: expectedBuff = MNK_IDs.Status_FormlessFist; break;
             }
             if (expectedBuff == 0) return false;
-            foreach (var status in player.StatusList)
-            {
-                if (status.StatusId == expectedBuff) return true;
-            }
+            foreach (var status in player.StatusList) if (status.StatusId == expectedBuff) return true;
             return false;
         }
 
         private unsafe bool IsActionRecentlyUsed(ActionManager* am, uint actionId)
         {
+            // Blitz Mapping: El juego reporta Masterful Blitz aunque usemos un ID específico
+            if (actionId == MNK_IDs.ElixirBurst || actionId == MNK_IDs.RisingPhoenix || actionId == MNK_IDs.PhantomRush)
+            {
+                if (IsActionRecentlyUsed(am, MNK_IDs.MasterfulBlitz)) return true;
+            }
+
             var elapsed = am->GetRecastTimeElapsed(ActionType.Action, actionId);
             var totalRecast = am->GetRecastTime(ActionType.Action, actionId);
-            if (totalRecast > 0 && elapsed > 0 && elapsed < 2.5f) return true;
+
+            if (totalRecast <= 0) return false;
+
+            // Usar ActionLibrary para diferenciar GCDs de oGCDs
+            bool isGCD = ActionLibrary.IsGCD(actionId);
+
+            if (isGCD)
+            {
+                // GCD: Solo éxito si el CD acaba de empezar (< 0.8s).
+                // Si es mayor, es un cooldown compartido residual.
+                if (elapsed < 0.8f) return true;
+            }
+            else
+            {
+                // oGCD: Ventana estándar de 2.2s
+                if (elapsed < 2.2f) return true;
+            }
+
             return false;
         }
 
-        private void AdvanceStep()
+        // =========================================================================
+        // AVANCE DE PASOS
+        // =========================================================================
+
+        private unsafe void AdvanceStep(ActionManager* am, uint completedActionId)
         {
             CurrentStepIndex++;
             stepStartTime = DateTime.Now;
             lastRequestTime = DateTime.MinValue;
             lastRequestedId = 0;
+
+            // Lógica de Freno Inteligente (Throttle)
+            float throttleMs = 500; // Base para oGCDs
+
+            if (completedActionId != 0)
+            {
+                if (ActionLibrary.IsGCD(completedActionId))
+                {
+                    // Si completamos un GCD, esperamos casi todo el GCD global antes de continuar.
+                    var currentGCD = am->GetRecastTime(ActionType.Action, 11); // ID 11 como referencia
+                    if (currentGCD > 0)
+                        throttleMs = (currentGCD * 1000) - 850; // Despertar 0.85s antes del siguiente GCD (Relaxed)
+                    else
+                        throttleMs = 1200;
+                }
+            }
+
+            if (throttleMs > 0) throttleTime = DateTime.Now.AddMilliseconds(throttleMs);
+        }
+
+        // Sobrecarga para skips simples (sin freno) - FIX: MARKED UNSAFE
+        private unsafe void AdvanceStep(ActionManager* am, float manualDelayMs)
+        {
+            CurrentStepIndex++;
+            stepStartTime = DateTime.Now;
+            lastRequestTime = DateTime.MinValue;
+            lastRequestedId = 0;
+            if (manualDelayMs > 0) throttleTime = DateTime.Now.AddMilliseconds(manualDelayMs);
+            else throttleTime = DateTime.MinValue;
         }
 
         private KeyBind? MapKeyBind(string keyName, object config)
@@ -258,7 +347,6 @@ namespace MyOwnACR.Logic
             return null;
         }
 
-        // Helper para chequear estatus (Procs)
         private bool HasStatus(IPlayerCharacter player, ushort statusId)
         {
             if (player == null) return false;

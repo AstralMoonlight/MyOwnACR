@@ -17,7 +17,7 @@ namespace MyOwnACR
     {
         public byte Key { get; set; }
         public HotbarType Bar { get; set; }
-        public KeyBind() { }
+        public KeyBind(Dalamud.Game.ClientState.Keys.VirtualKey mBUTTON) { }
         public KeyBind(byte key, HotbarType bar) { Key = key; Bar = bar; }
     }
 

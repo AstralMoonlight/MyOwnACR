@@ -1,6 +1,6 @@
 // Archivo: MyOwnACR/InputSender.cs
 // Descripción: Gestor de inputs con cola dedicada.
-// AJUSTES: Issue #3 - Manejo explícito de excepciones y logging en Dispose/Worker.
+// AJUSTES: v2.4 - Ultra Relaxed / Safe Human Profile.
 
 using System;
 using System.Collections.Concurrent;
@@ -35,32 +35,63 @@ namespace MyOwnACR.Logic
         private const byte VK_MENU = 0x12;
 
         // =====================================================================================
-        // 1. CONFIGURACIÓN DE TIEMPOS
+        // 1. CONFIGURACIÓN DE TIEMPOS (PERFIL ULTRA RELAJADO - SAFE)
         // =====================================================================================
 
-        // --- RITMO RELAJADO (GCD -> GCD) ---
-        private const int RelaxedDelayMs = 200;
-        private const int RelaxedJitterMs = 50;
-
-        // --- MODO ANSIOSO (Weaving / Queueing) ---
-        private const int AnxiousDelayMs = 150;
-        private const int AnxiousJitterMs = 25;
-
-        // --- SPAM ---
+        /* --- BACKUP: CONFIGURACIÓN v2.3 (Human Competitive) ---
+        private const int RelaxedDelayMs = 250;
+        private const int RelaxedJitterMs = 80;
+        private const int AnxiousDelayMs = 100;
+        private const int AnxiousJitterMs = 30;
         private const int MinSpamCount = 2;
-        private const int MaxSpamCount = 3;
-        private const int SpamIntervalMs = 100;
-        private const int SpamIntervalJitterMs = 15;
+        private const int MaxSpamCount = 5;
+        private const int SpamIntervalMs = 120;
+        private const int SpamIntervalJitterMs = 40;
+        private const int KeyHoldMs = 70;
+        private const int KeyHoldJitterMs = 20;
+        private const int RelaxedPrePressMin = 750;
+        private const int RelaxedPrePressMax = 950;
+        private const int AnxiousPrePressMin = 650;
+        private const int AnxiousPrePressMax = 800;
+        */
 
-        // --- FÍSICA ---
-        private const int KeyHoldMs = 100;
-        private const int KeyHoldJitterMs = 15;
+        // --- RITMO RELAJADO (GCD -> GCD) ---
+        // Esperamos visualmente a que la animación termine.
+        private const int RelaxedDelayMs = 350;
+        private const int RelaxedJitterMs = 100;
+
+        // --- MODO WEAVING (oGCDs) ---
+        // No nos estresamos por el clipping, preferimos seguridad.
+        private const int AnxiousDelayMs = 180;
+        private const int AnxiousJitterMs = 50;
+
+        // --- SPAM (Button Mashing) ---
+        // Mashing lento y deliberado.
+        private const int MinSpamCount = 2;
+        private const int MaxSpamCount = 4;
+        private const int SpamIntervalMs = 160; // ~6 clicks por segundo (Lento)
+        private const int SpamIntervalJitterMs = 40;
+
+        // --- FÍSICA DE TECLA ---
+        // Pulsación larga y marcada.
+        private const int KeyHoldMs = 90;
+        private const int KeyHoldJitterMs = 25;
+
+        // --- PRE-PRESS (ANTICIPACIÓN) ---
+        // Empezamos a apretar con mucha antelación (casi 1 segundo), 
+        // como quien espera el cooldown con el dedo en el botón.
+
+        // Relaxed: 0.8s a 1.2s antes.
+        private const int RelaxedPrePressMin = 800;
+        private const int RelaxedPrePressMax = 1200;
+
+        // Anxious: 0.5s a 0.8s antes.
+        private const int AnxiousPrePressMin = 500;
+        private const int AnxiousPrePressMax = 800;
 
         // =====================================================================================
 
         private static BlockingCollection<InputTask> InputQueue = new BlockingCollection<InputTask>();
-
-        // Inicialización segura con null!
         private static CancellationTokenSource Cts = null!;
         private static Task WorkerTask = null!;
         private static bool Initialized = false;
@@ -68,7 +99,6 @@ namespace MyOwnACR.Logic
         private static DateTime LastSentTime = DateTime.MinValue;
         private static bool LastWasGCD = true;
 
-        // Variables para Anti-Duplicación (Debounce)
         private static DateTime LastInputAddedTime = DateTime.MinValue;
         private static byte LastInputKey = 0;
 
@@ -80,7 +110,6 @@ namespace MyOwnACR.Logic
             Cts = new CancellationTokenSource();
             InputQueue = new BlockingCollection<InputTask>();
 
-            // Usamos LongRunning para asegurar un hilo dedicado
             WorkerTask = Task.Factory.StartNew(WorkerLoop, Cts.Token, TaskCreationOptions.LongRunning, TaskScheduler.Default);
 
             Initialized = true;
@@ -97,17 +126,14 @@ namespace MyOwnACR.Logic
 
             try
             {
-                // Esperar a que el worker termine (máx 1s)
                 WorkerTask.Wait(1000);
             }
             catch (AggregateException ae)
             {
-                // Manejar la excepción esperada de cancelación
                 ae.Handle(e => e is TaskCanceledException);
             }
             catch (Exception ex)
             {
-                // Loguear cualquier otro error inesperado al cerrar
                 if (Plugin.Log != null) Plugin.Log.Warning($"Error cerrando InputSender: {ex.Message}");
             }
 
@@ -120,7 +146,6 @@ namespace MyOwnACR.Logic
         {
             if (!Initialized) Initialize();
 
-            // Anti-Duplicación
             var now = DateTime.UtcNow;
             if (key == LastInputKey && (now - LastInputAddedTime).TotalMilliseconds < 200)
             {
@@ -144,10 +169,9 @@ namespace MyOwnACR.Logic
                     ProcessTask(task);
                 }
             }
-            catch (OperationCanceledException) { /* Normal al cerrar */ }
+            catch (OperationCanceledException) { }
             catch (Exception ex)
             {
-                // Loguear error crítico en ambas consolas
                 Plugin.Log.Error(ex, "InputSender Worker ha fallado.");
                 Plugin.Instance?.SendLog($"[InputSender Error] {ex.Message}");
             }
@@ -155,15 +179,25 @@ namespace MyOwnACR.Logic
 
         private static void ProcessTask(InputTask task)
         {
+            // Determinamos si estamos en modo "Relajado" (GCD tras GCD) o "Ansioso" (Weaving)
             bool isRelaxedTransition = LastWasGCD && task.IsGCD;
             LastWasGCD = task.IsGCD;
 
+            // 1. Calcular el Delay Base (Tiempo de reacción visual + latencia mental)
             int delayBase = isRelaxedTransition ? RelaxedDelayMs : AnxiousDelayMs;
             int delayJitter = isRelaxedTransition ? RelaxedJitterMs : AnxiousJitterMs;
-
             int calculatedDelay = delayBase + Rng.Next(-delayJitter, delayJitter + 1);
+
+            // 2. Calcular Pre-Press (Adelantarse al CD)
+            int prePressWindow = isRelaxedTransition
+                ? Rng.Next(RelaxedPrePressMin, RelaxedPrePressMax)
+                : Rng.Next(AnxiousPrePressMin, AnxiousPrePressMax);
+
+            calculatedDelay -= prePressWindow;
+
             if (calculatedDelay < 5) calculatedDelay = 5;
 
+            // Esperar el tiempo calculado
             var elapsed = (DateTime.UtcNow - LastSentTime).TotalMilliseconds;
             if (elapsed < calculatedDelay)
             {
@@ -172,6 +206,7 @@ namespace MyOwnACR.Logic
 
             LastSentTime = DateTime.UtcNow;
 
+            // Ejecutar pulsaciones
             PressModifiers(task.BarType);
 
             int clicks = Rng.Next(MinSpamCount, MaxSpamCount + 1);

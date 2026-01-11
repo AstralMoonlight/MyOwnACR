@@ -71,6 +71,8 @@ namespace MyOwnACR.GameData
         // =========================================================================
         public const ushort Status_PerfectBalance = 110;
         public const ushort Status_RiddleOfFire = 1181;
+        public const ushort Status_RiddleOfEarth = 1179;
+        public const ushort Status_RiddleOfWind = 2687;
         public const ushort Status_Brotherhood = 1185;
         public const ushort Status_FormlessFist = 2513;
         public const ushort Status_OpoOpoForm = 107;
@@ -78,5 +80,6 @@ namespace MyOwnACR.GameData
         public const ushort Status_CoeurlForm = 109;
         public const ushort Status_FiresRumination = 3843;
         public const ushort Status_WindsRumination = 3842;
+        public const ushort Status_Mantra = 102;
     }
 }

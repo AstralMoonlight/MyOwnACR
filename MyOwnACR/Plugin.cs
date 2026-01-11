@@ -1,6 +1,6 @@
 // Archivo: MyOwnACR/Plugin.cs
 // Descripción: Clase principal del Plugin.
-// VERSION: Final Refactor (RotationManager Integrated).
+// VERSION: v19.2 - Fix Opener & Potion Live Update from Web.
 
 using Dalamud.Game.Command;
 using Dalamud.IoC;
@@ -47,12 +47,12 @@ namespace MyOwnACR
         [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
         [PluginService] internal static IClientState ClientState { get; private set; } = null!;
         [PluginService] internal static IFramework Framework { get; private set; } = null!;
-        [PluginService] internal static IChatGui Chat { get; private set; } = null!;
+        [PluginService] public static IChatGui Chat { get; private set; } = null!;
         [PluginService] internal static IObjectTable ObjectTable { get; private set; } = null!;
         [PluginService] internal static ICondition Condition { get; private set; } = null!;
         [PluginService] internal static IJobGauges JobGauges { get; private set; } = null!;
         [PluginService] internal static IDataManager DataManager { get; private set; } = null!;
-        [PluginService] internal static IKeyState KeyState { get; private set; } = null!;
+        [PluginService] public static IKeyState KeyState { get; private set; } = null!;
         [PluginService] internal static IGameGui GameGui { get; private set; } = null!;
         [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
@@ -70,7 +70,6 @@ namespace MyOwnACR
         private DateTime lastSentTime = DateTime.MinValue;
         private DateTime lastErrorLogTime = DateTime.MinValue;
 
-        // Suppress LibraryImport recommendation for now
 #pragma warning disable SYSLIB1054 
         [DllImport("user32.dll")]
         private static extern bool SetForegroundWindow(IntPtr hWnd);
@@ -79,9 +78,11 @@ namespace MyOwnACR
         private static extern IntPtr GetForegroundWindow();
 #pragma warning restore SYSLIB1054
 
-        public Plugin()
+        public Plugin(IDalamudPluginInterface pluginInterface)
         {
             Instance = this;
+            PluginInterface = pluginInterface;
+
             Config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
             Config.Initialize(PluginInterface);
 
@@ -158,6 +159,9 @@ namespace MyOwnACR
         private unsafe bool IsSafeToAct(out string failReason)
         {
             failReason = "";
+            // Permitir ejecución en segundo plano si se usa memoria
+            if (Config.Operation.UseMemoryInput) return true;
+
             var gameHandle = Process.GetCurrentProcess().MainWindowHandle;
             var activeHandle = GetForegroundWindow();
 
@@ -202,7 +206,6 @@ namespace MyOwnACR
 
         private void OnCommandDebug(string command, string args)
         {
-            // CAMBIO: Delegar al Manager
             RotationManager.Instance.PrintDebugInfo(Chat);
             SendLog("Debug Info impresa en chat del juego.");
         }
@@ -232,7 +235,7 @@ namespace MyOwnACR
                     Config.Save();
 
                     var status = Config.Operation.SaveCD ? "ACTIVADO" : "DESACTIVADO";
-                    Chat.Print($"[ACR] Save Cooldowns: {status}");
+                    //Chat.Print($"[ACR] Save Cooldowns: {status}");
                     SendLog($"Save Cooldowns (Manual): {status}");
 
                     var payload = new
@@ -260,18 +263,12 @@ namespace MyOwnACR
                             var am = ActionManager.Instance();
                             if (am != null)
                             {
-                                var jobId = player.ClassJob.RowId;
-                                // Nota: Quitamos el check manual de "if jobId == 20" porque el RotationManager ya se encarga de eso.
-                                // Si no hay lógica para el job actual, RotationManager simplemente no hace nada.
-
-                                // Ejecutar supervivencia (General para todos)
                                 var survivalActionUsed = Logic.Survival.Execute(
                                     am, player, Config.Survival, Config.Monk.SecondWind, Config.Monk.Bloodbath
                                 );
 
                                 if (!survivalActionUsed)
                                 {
-                                    // CAMBIO: Llamada centralizada al RotationManager
                                     RotationManager.Instance.Execute(am, player, ObjectTable, Config);
                                 }
                             }
@@ -282,8 +279,11 @@ namespace MyOwnACR
                         if ((DateTime.Now - lastErrorLogTime).TotalSeconds > 1)
                         {
                             lastErrorLogTime = DateTime.Now;
-                            var msg = $"Bot detenido por seguridad: {blockReason}";
-                            SendLog(msg);
+                            if (!Config.Operation.UseMemoryInput)
+                            {
+                                var msg = $"Bot detenido por seguridad: {blockReason}";
+                                SendLog(msg);
+                            }
                         }
                     }
                 }
@@ -322,7 +322,6 @@ namespace MyOwnACR
                     var inCombat = Condition[ConditionFlag.InCombat];
                     var statusText = isRunning ? (inCombat ? "COMBATIENDO" : "ESPERANDO") : "PAUSADO";
 
-                    // CAMBIO: Obtener datos de acción desde el Manager
                     _ = SendJsonAsync("status", new
                     {
                         is_running = isRunning,
@@ -480,7 +479,6 @@ namespace MyOwnACR
                 else if (type == "force_action")
                 {
                     var actionName = cmd["data"]?.ToString() ?? "";
-                    // CAMBIO: Delegar al Manager
                     RotationManager.Instance.QueueManualAction(actionName);
                     FocusGame();
                     SendLog($"Acción forzada recibida: {actionName}");
@@ -519,7 +517,22 @@ namespace MyOwnACR
                 else if (type == "save_operation")
                 {
                     var newOp = cmd["data"]?.ToObject<OperationalSettings>();
-                    if (newOp != null) { Config.Operation = newOp; Config.Save(); }
+                    if (newOp != null)
+                    {
+                        Config.Operation = newOp;
+                        Config.Save();
+
+                        // --- FIX CRÍTICO: ACTUALIZAR OPENER AL INSTANTE ---
+                        if (!string.IsNullOrEmpty(newOp.SelectedOpener) && newOp.SelectedOpener != "Ninguno")
+                        {
+                            OpenerManager.Instance.SelectOpener(newOp.SelectedOpener);
+                            SendLog($"[SYSTEM] Opener actualizado: {newOp.SelectedOpener}");
+                        }
+                        else
+                        {
+                            // OpenerManager.Instance.Reset(); // Opcional si quieres forzar stop
+                        }
+                    }
                     FocusGame();
                 }
                 else if (type == "get_openers")
