@@ -3,7 +3,6 @@
   "Steps": [
     { "Name": "Dragon Kick", "KeyName": "DragonKick", "ActionId": 74 },
     { "Name": "Perfect Balance", "KeyName": "PerfectBalance", "ActionId": 69 },
-    { "Name": "The Forbidden Chakra", "KeyName": "TheForbiddenChakra", "ActionId": 3547 },
     { "Name": "Leaping Opo", "KeyName": "Bootshine", "ActionId": 53 },
     { "Name": "Dragon Kick", "KeyName": "DragonKick", "ActionId": 74 },
     { "Name": "Potion", "KeyName": "Pocion", "Type": "Potion", "ActionId": 0 },

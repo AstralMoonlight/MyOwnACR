@@ -1,0 +1,45 @@
+{
+  "Name": "SAM Standard Lv100",
+  "Steps": [
+    { "Name": "Meikyo Shisui", "KeyName": "MeikyoShisui", "Prepull": 14 },
+    { "Name": "True North", "KeyName": "TrueNorth", "Prepull": 5 },
+    
+    { "Name": "Gekko", "KeyName": "Gekko" },
+    { "Name": "Potion", "KeyName": "Pocion", "Type": "Potion" },
+
+    { "Name": "Kasha", "KeyName": "Kasha" },
+    { "Name": "Ikishoten", "KeyName": "Ikishoten" },
+
+    { "Name": "Yukikaze", "KeyName": "Yukikaze" },
+
+    { "Name": "Tendo Setsugekka", "KeyName": "TendoSetsugekka" },
+    { "Name": "Hissatsu Senei", "KeyName": "HissatsuSenei" },
+
+    { "Name": "Tendo Kaeshi Setsugekka", "KeyName": "TendoKaeshiSetsugekka" },
+    { "Name": "Meikyo Shisui", "KeyName": "MeikyoShisui" },
+
+    { "Name": "Gekko", "KeyName": "Gekko" },
+    { "Name": "Zanshin", "KeyName": "Zanshin" },
+
+    { "Name": "Higanbana", "KeyName": "Higanbana" },
+
+    { "Name": "Ogi Namikiri", "KeyName": "OgiNamikiri" },
+    { "Name": "Shoha", "KeyName": "Shoha" },
+
+    { "Name": "Kaeshi Namikiri", "KeyName": "KaeshiNamikiri" },
+
+    { "Name": "Kasha", "KeyName": "Kasha" },
+    { "Name": "Hissatsu Shinten", "KeyName": "HissatsuShinten" },
+
+    { "Name": "Gekko", "KeyName": "Gekko" },
+    { "Name": "Hissatsu Gyoten", "KeyName": "HissatsuGyoten" },
+
+    { "Name": "Gyofu", "KeyName": "Gyofu" },
+
+    { "Name": "Yukikaze", "KeyName": "Yukikaze" },
+    { "Name": "Hissatsu Shinten", "KeyName": "HissatsuShinten" },
+
+    { "Name": "Tendo Setsugekka", "KeyName": "TendoSetsugekka" },
+    { "Name": "Tendo Kaeshi Setsugekka", "KeyName": "TendoKaeshiSetsugekka" }
+  ]
+}

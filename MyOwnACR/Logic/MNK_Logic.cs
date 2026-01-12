@@ -548,7 +548,7 @@ namespace MyOwnACR.Logic
             ulong targetId,
             bool useMemory)
         {
-            if (op.SaveCD) return false;
+            //if (op.SaveCD) return false;
 
             // --- FIX: Evitar doble cast de PB en rotación automática ---
             if (pendingPB)
@@ -577,9 +577,10 @@ namespace MyOwnACR.Logic
                 rofRemains = 999f;
             }
 
-            // --- FIX: POCIÓN EN ROTACIÓN (Estaba en tu archivo pero no hacía nada si no entraba aquí) ---
+            // --- FIX: POCIÓN EN ROTACIÓN ---
             if (op.UsePotion && op.SelectedPotionId != 0 && player.Level >= MNK_Levels.Brotherhood)
             {
+                if (op.SaveCD) return false;
                 var bhTotal = am->GetRecastTime(ActionType.Action, MNK_IDs.Brotherhood);
                 var bhElapsed = am->GetRecastTimeElapsed(ActionType.Action, MNK_IDs.Brotherhood);
                 var bhCD = (bhTotal > 0) ? Math.Max(0, bhTotal - bhElapsed) : 0;
@@ -604,6 +605,7 @@ namespace MyOwnACR.Logic
             // 1. RIDDLE OF FIRE
             if (op.UseRoF && player.Level >= MNK_Levels.RiddleOfFire && CanUseRecast(am, MNK_IDs.RiddleOfFire, actionQueueWindow))
             {
+                if (op.SaveCD) return false;
                 ExecuteAction(am, MNK_IDs.RiddleOfFire, config.RiddleOfFire, targetId, useMemory);
                 return true;
             }
@@ -611,8 +613,10 @@ namespace MyOwnACR.Logic
             // 2. BROTHERHOOD
             if (op.UseBrotherhood && player.Level >= MNK_Levels.Brotherhood)
             {
+                if (op.SaveCD) return false;
                 if ((rofActive || rofCD < 5.0f) && CanUseRecast(am, MNK_IDs.Brotherhood, actionQueueWindow))
                 {
+                    if (op.SaveCD) return false;
                     ExecuteAction(am, MNK_IDs.Brotherhood, config.Brotherhood, targetId, useMemory);
                     return true;
                 }
@@ -638,6 +642,7 @@ namespace MyOwnACR.Logic
 
             if (op.UsePB && player.Level >= MNK_Levels.PerfectBalance && !inPB && pbCharges > 0 && pbSafe)
             {
+                if (op.SaveCD) return false;
                 var lastAction = am->Combo.Action;
                 var lastWasOpo = lastAction == MNK_IDs.Bootshine ||
                                   lastAction == MNK_IDs.DragonKick ||
