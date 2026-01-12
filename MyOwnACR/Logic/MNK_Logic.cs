@@ -1,6 +1,6 @@
 // Archivo: Logic/MNK_Logic.cs
 // Descripción: Lógica de combate para Monje (Dawntrail 7.x).
-// VERSION: v3.1 - Fix Opener Timeout & PB Double Cast (Sin IDs externos).
+// VERSION: v3.8 - Fix Positional Data (Removed False Positionals).
 
 using System;
 using System.Linq;
@@ -41,8 +41,9 @@ namespace MyOwnACR.Logic
         private DateTime lastTrueNorthTime = DateTime.MinValue;
         private DateTime lastPotionCheckTime = DateTime.MinValue;
 
-        // --- FIX: Variable para evitar doble PB en rotación ---
+        // --- FLAGS DE PENDIENTE (Anti-Doble Cast) ---
         private bool pendingPB = false;
+        private bool pendingTN = false;
 
         private bool lastActionWasGCD = true;
         private int ogcdCount = 0;
@@ -74,8 +75,6 @@ namespace MyOwnACR.Logic
             ulong targetId,
             bool useMemory)
         {
-            // --- FIX OPENER: El juego rechaza el ID de "Elixir Burst" si no tienes el buff exacto.
-            // Hay que enviar el ID base "Masterful Blitz" (25765) y el juego lo transforma.
             if (IsBlitz(actionId))
             {
                 actionId = MNK_IDs.MasterfulBlitz;
@@ -131,7 +130,7 @@ namespace MyOwnACR.Logic
             var useMem = operation.UseMemoryInput;
             var inCombat = Plugin.Condition?[ConditionFlag.InCombat] ?? false;
 
-            // -1. INYECCIÓN PRIORITARIA (HOTBAR VIRTUAL)
+            // -1. INYECCIÓN PRIORITARIA
             if (queuedPriorityAction != 0)
             {
                 if (DateTime.Now > queueExpirationTime)
@@ -178,8 +177,6 @@ namespace MyOwnACR.Logic
 
                 if (opActionId != 0)
                 {
-                    // --- FIX TARGET OPENER: Buffs al Player, Ataques al Target ---
-                    // Solo usamos IDs que sabemos que existen en tu archivo.
                     ulong opTargetId = player.GameObjectId;
                     bool isSelfBuff = opActionId == MNK_IDs.RiddleOfFire ||
                                       opActionId == MNK_IDs.Brotherhood ||
@@ -194,7 +191,6 @@ namespace MyOwnACR.Logic
                     ExecuteAction(am, opActionId, opBind, opTargetId, useMem);
                     return;
                 }
-
                 if (OpenerManager.Instance.IsRunning) return;
             }
 
@@ -282,12 +278,53 @@ namespace MyOwnACR.Logic
                 return;
             }
 
-            // 5. ROTACIÓN DE COMBATE (GCD)
+            // ==========================================================
+            // CÁLCULO DE GCD Y TRUE NORTH (REAL FIX)
+            // ==========================================================
             var enemyCount = CombatHelpers.CountAttackableEnemiesInRange(objectTable, player, 5f);
             var useAoE = operation.AoE_Enabled && enemyCount >= AoE_Threshold;
 
             var gcdCandidate = GetNextGcdCandidate(am, mnkConfig, player, useAoE, operation);
 
+            var gcdTotal = am->GetRecastTime(ActionType.Action, 11);
+            var gcdElapsed = am->GetRecastTimeElapsed(ActionType.Action, 11);
+            var gcdRemaining = (gcdTotal > 0) ? Math.Max(0, gcdTotal - gcdElapsed) : 0;
+
+            // --- GESTIÓN DE PENDIENTE (Resets) ---
+            if (pendingTN)
+            {
+                if (HasStatus(player, Melee_IDs.Status_TrueNorth)) pendingTN = false;
+                else if ((now - lastTrueNorthTime).TotalSeconds > 1.2) pendingTN = false;
+            }
+
+            // --- TRUE NORTH EARLY WEAVE ---
+            // Solo usar si falta poco para el GCD, no estamos bloqueados y no tenemos buff.
+            if (gcdCandidate.HasValue && operation.TrueNorth_Auto && gcdRemaining < 0.8f && !pendingTN && !HasStatus(player, Melee_IDs.Status_TrueNorth))
+            {
+                var id = gcdCandidate.Value.actionId;
+                var neededPos = Position.Unknown;
+
+                // --- CORRECCIÓN: SOLO ESTOS 3 TIENEN POSICIONALES REALES ---
+                if (id == MNK_IDs.Demolish) neededPos = Position.Rear;
+                else if (id == MNK_IDs.SnapPunch) neededPos = Position.Flank;
+                else if (id == MNK_IDs.PouncingCoeurl) neededPos = Position.Flank;
+
+                if (neededPos != Position.Unknown)
+                {
+                    var usedTN = MeleeCommon.HandleTrueNorth(am, player, operation, mnkConfig.TrueNorth, neededPos, ref lastProposedAction, ref lastAnyActionTime);
+
+                    if (usedTN)
+                    {
+                        lastTrueNorthTime = now;
+                        pendingTN = true; // Bloqueo temporal
+                        lastActionWasGCD = false;
+                        ogcdCount++;
+                        return; // Retorno obligatorio para proteger el weave
+                    }
+                }
+            }
+
+            // 5. EJECUCIÓN DEL GCD
             var isActionReady = false;
             if (gcdCandidate.HasValue)
             {
@@ -298,40 +335,12 @@ namespace MyOwnACR.Logic
 
             if (isActionReady && gcdCandidate.HasValue)
             {
-                if (operation.TrueNorth_Auto)
-                {
-                    if ((now - lastTrueNorthTime).TotalSeconds > 10)
-                    {
-                        if (!HasStatus(player, Melee_IDs.Status_TrueNorth))
-                        {
-                            var id = gcdCandidate.Value.actionId;
-                            var neededPos = Position.Unknown;
-                            if (id == MNK_IDs.Demolish) neededPos = Position.Rear;
-                            else if (id == MNK_IDs.SnapPunch || id == MNK_IDs.PouncingCoeurl) neededPos = Position.Flank;
-
-                            var usedTN = MeleeCommon.HandleTrueNorth(am, player, operation, mnkConfig.TrueNorth, neededPos, ref lastProposedAction, ref lastAnyActionTime);
-
-                            if (usedTN)
-                            {
-                                lastTrueNorthTime = now;
-                                lastActionWasGCD = false;
-                                ogcdCount++;
-                                return;
-                            }
-                        }
-                    }
-                }
-
                 ExecuteAction(am, gcdCandidate.Value.actionId, gcdCandidate.Value.bind, targetId, useMem);
                 return;
             }
 
             // 6. ROTACIÓN DE COMBATE (OGCD)
             var maxWeaves = mnkConfig.EnableDoubleWeave ? 2 : 1;
-            var gcdTotal = am->GetRecastTime(ActionType.Action, 11);
-            var gcdElapsed = am->GetRecastTimeElapsed(ActionType.Action, 11);
-            var gcdRemaining = (gcdTotal > 0) ? Math.Max(0, gcdTotal - gcdElapsed) : 0;
-
             var isHolding = (gcdRemaining <= 0.01f && !isActionReady);
 
             if (isHolding) ogcdCount = 0;
@@ -346,7 +355,7 @@ namespace MyOwnACR.Logic
         }
 
         // =========================================================================
-        // HELPERS (Static para CA1822)
+        // HELPERS
         // =========================================================================
 
         private static unsafe bool CanUseRecast(ActionManager* am, uint id, float queueWindow = 0.5f)
@@ -442,24 +451,20 @@ namespace MyOwnACR.Logic
 
             var lastAction = am->Combo.Action;
             var lastWasOpo = lastAction == MNK_IDs.Bootshine ||
-                              lastAction == MNK_IDs.DragonKick ||
-                              lastAction == MNK_IDs.LeapingOpo ||
-                              lastAction == MNK_IDs.ArmOfTheDestroyer ||
-                              lastAction == MNK_IDs.ShadowOfTheDestroyer;
+                             lastAction == MNK_IDs.DragonKick ||
+                             lastAction == MNK_IDs.LeapingOpo ||
+                             lastAction == MNK_IDs.ArmOfTheDestroyer ||
+                             lastAction == MNK_IDs.ShadowOfTheDestroyer;
 
             if (player.Level >= MNK_Levels.MasterfulBlitz)
             {
                 var realChakraCount = gauge.BeastChakra.Count(c => c != BeastChakra.None);
                 if (realChakraCount == 3)
                 {
-
-
-                  var specificBlitzId = GetActiveBlitzId(gauge);
+                    var specificBlitzId = GetActiveBlitzId(gauge);
 
                     if (specificBlitzId == MNK_IDs.PhantomRush)
                     {
-                        // 1. Validación Riddle of Fire
-                        // Si RoF está habilitado y desbloqueado
                         if (op.UseRoF && player.Level >= MNK_Levels.RiddleOfFire)
                         {
                             var rofTotal = am->GetRecastTime(ActionType.Action, MNK_IDs.RiddleOfFire);
@@ -467,12 +472,9 @@ namespace MyOwnACR.Logic
                             var rofCD = (rofTotal > 0) ? Math.Max(0, rofTotal - rofElapsed) : 0;
                             var hasRoF = HasStatus(player, MNK_IDs.Status_RiddleOfFire);
 
-                            // Si NO tenemos el buff de RoF activo, PERO el cooldown es corto (< 18s, ventana de burst),
-                            // entonces esperamos (return null) para que TryUseOgcd active RoF primero.
                             if (!hasRoF && rofCD < 18.0f) return null;
                         }
 
-                        // 2. Validación Brotherhood
                         if (op.UseBrotherhood && player.Level >= MNK_Levels.Brotherhood)
                         {
                             var bhTotal = am->GetRecastTime(ActionType.Action, MNK_IDs.Brotherhood);
@@ -480,7 +482,6 @@ namespace MyOwnACR.Logic
                             var bhCD = (bhTotal > 0) ? Math.Max(0, bhTotal - bhElapsed) : 0;
                             var hasBhBuff = HasStatus(player, MNK_IDs.Status_Brotherhood);
 
-                            // Si NO tienes el buff y Brotherhood viene en < 15s, esperar.
                             if (!hasBhBuff && bhCD < 15.0f) return null;
                         }
 
@@ -548,9 +549,6 @@ namespace MyOwnACR.Logic
             ulong targetId,
             bool useMemory)
         {
-            //if (op.SaveCD) return false;
-
-            // --- FIX: Evitar doble cast de PB en rotación automática ---
             if (pendingPB)
             {
                 if (HasStatus(player, MNK_IDs.Status_PerfectBalance)) pendingPB = false;
@@ -577,10 +575,9 @@ namespace MyOwnACR.Logic
                 rofRemains = 999f;
             }
 
-            // --- FIX: POCIÓN EN ROTACIÓN ---
-            if (op.UsePotion && op.SelectedPotionId != 0 && player.Level >= MNK_Levels.Brotherhood)
+            // Potion Logic (SaveCD safe)
+            if (op.UsePotion && op.SelectedPotionId != 0 && player.Level >= MNK_Levels.Brotherhood && !op.SaveCD)
             {
-                if (op.SaveCD) return false;
                 var bhTotal = am->GetRecastTime(ActionType.Action, MNK_IDs.Brotherhood);
                 var bhElapsed = am->GetRecastTimeElapsed(ActionType.Action, MNK_IDs.Brotherhood);
                 var bhCD = (bhTotal > 0) ? Math.Max(0, bhTotal - bhElapsed) : 0;
@@ -605,20 +602,23 @@ namespace MyOwnACR.Logic
             // 1. RIDDLE OF FIRE
             if (op.UseRoF && player.Level >= MNK_Levels.RiddleOfFire && CanUseRecast(am, MNK_IDs.RiddleOfFire, actionQueueWindow))
             {
-                if (op.SaveCD) return false;
-                ExecuteAction(am, MNK_IDs.RiddleOfFire, config.RiddleOfFire, targetId, useMemory);
-                return true;
+                if (!op.SaveCD)
+                {
+                    ExecuteAction(am, MNK_IDs.RiddleOfFire, config.RiddleOfFire, targetId, useMemory);
+                    return true;
+                }
             }
 
             // 2. BROTHERHOOD
             if (op.UseBrotherhood && player.Level >= MNK_Levels.Brotherhood)
             {
-                if (op.SaveCD) return false;
                 if ((rofActive || rofCD < 5.0f) && CanUseRecast(am, MNK_IDs.Brotherhood, actionQueueWindow))
                 {
-                    if (op.SaveCD) return false;
-                    ExecuteAction(am, MNK_IDs.Brotherhood, config.Brotherhood, targetId, useMemory);
-                    return true;
+                    if (!op.SaveCD)
+                    {
+                        ExecuteAction(am, MNK_IDs.Brotherhood, config.Brotherhood, targetId, useMemory);
+                        return true;
+                    }
                 }
             }
 
@@ -642,60 +642,62 @@ namespace MyOwnACR.Logic
 
             if (op.UsePB && player.Level >= MNK_Levels.PerfectBalance && !inPB && pbCharges > 0 && pbSafe)
             {
-                if (op.SaveCD) return false;
-                var lastAction = am->Combo.Action;
-                var lastWasOpo = lastAction == MNK_IDs.Bootshine ||
-                                  lastAction == MNK_IDs.DragonKick ||
-                                  lastAction == MNK_IDs.LeapingOpo ||
-                                  lastAction == MNK_IDs.ArmOfTheDestroyer ||
-                                  lastAction == MNK_IDs.ShadowOfTheDestroyer;
+                if (!op.SaveCD)
+                {
+                    var lastAction = am->Combo.Action;
+                    var lastWasOpo = lastAction == MNK_IDs.Bootshine ||
+                                     lastAction == MNK_IDs.DragonKick ||
+                                     lastAction == MNK_IDs.LeapingOpo ||
+                                     lastAction == MNK_IDs.ArmOfTheDestroyer ||
+                                     lastAction == MNK_IDs.ShadowOfTheDestroyer;
 
-                var shouldUse = false;
+                    var shouldUse = false;
 
-                if (isTrueOpener)
-                {
-                    if (lastWasOpo) shouldUse = true;
-                }
-                else if (rofComingSoon && rofCD > 0)
-                {
-                    if (lastWasOpo) shouldUse = true;
-                }
-                else if (rofActive)
-                {
-                    if (rofRemains > 8.0f)
+                    if (isTrueOpener)
                     {
-                        if (lastWasOpo)
+                        if (lastWasOpo) shouldUse = true;
+                    }
+                    else if (rofComingSoon && rofCD > 0)
+                    {
+                        if (lastWasOpo) shouldUse = true;
+                    }
+                    else if (rofActive)
+                    {
+                        if (rofRemains > 8.0f)
                         {
-                            if (HasStatus(player, MNK_IDs.Status_Brotherhood) || !CanUseRecast(am, MNK_IDs.Brotherhood, actionQueueWindow))
-                                shouldUse = true;
-                            else if (pbCharges >= 1)
-                                shouldUse = true;
+                            if (lastWasOpo)
+                            {
+                                if (HasStatus(player, MNK_IDs.Status_Brotherhood) || !CanUseRecast(am, MNK_IDs.Brotherhood, actionQueueWindow))
+                                    shouldUse = true;
+                                else if (pbCharges >= 1)
+                                    shouldUse = true;
+                            }
                         }
                     }
-                }
-                else if (pbCharges == pbMax)
-                {
-                    if (rofCD > 30.0f && !rofActive && lastWasOpo)
-                        shouldUse = true;
-                }
+                    else if (pbCharges == pbMax)
+                    {
+                        if (rofCD > 30.0f && !rofActive && lastWasOpo)
+                            shouldUse = true;
+                    }
 
-                if (shouldUse)
-                {
-                    ExecuteAction(am, MNK_IDs.PerfectBalance, config.PerfectBalance, targetId, useMemory);
-                    lastPBTime = DateTime.Now;
-                    pendingPB = true; // Activar bloqueo
-                    return true;
+                    if (shouldUse)
+                    {
+                        ExecuteAction(am, MNK_IDs.PerfectBalance, config.PerfectBalance, targetId, useMemory);
+                        lastPBTime = DateTime.Now;
+                        pendingPB = true;
+                        return true;
+                    }
                 }
             }
 
-            // 4. FORBIDDEN CHAKRA
+            // 4. CHAKRA (Siempre habilitado)
             if (op.UseForbiddenChakra && player.Level >= MNK_Levels.ForbiddenChakra && gauge.Chakra >= 5 && CanUseRecast(am, MNK_IDs.TheForbiddenChakra, actionQueueWindow))
             {
                 ExecuteAction(am, MNK_IDs.TheForbiddenChakra, config.ForbiddenChakra, targetId, useMemory);
                 return true;
             }
 
-            // 5. RIDDLE OF WIND
+            // 5. RIDDLE OF WIND (Siempre habilitado)
             if (op.UseRoW && player.Level >= MNK_Levels.RiddleOfWind && CanUseRecast(am, MNK_IDs.RiddleOfWind, actionQueueWindow))
             {
                 ExecuteAction(am, MNK_IDs.RiddleOfWind, config.RiddleOfWind, targetId, useMemory);
