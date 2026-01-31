@@ -2,6 +2,8 @@
 // Descripción: Registro de todas las habilidades de Monk con sus metadatos.
 // CAMBIO: Uso de ActionCooldownType.
 
+using MyOwnACR.Logic.Common;
+
 namespace MyOwnACR.GameData
 {
     public static class MNK_ActionData

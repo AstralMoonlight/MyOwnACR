@@ -9,7 +9,7 @@ using Dalamud.Plugin.Services;
 using System;
 using System.Numerics;
 
-namespace MyOwnACR.Logic
+namespace MyOwnACR.Logic.Common
 {
     // Enum para identificar dónde estamos parados
     public enum Position { Front, Flank, Rear, Unknown }

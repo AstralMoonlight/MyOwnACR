@@ -69,8 +69,6 @@ namespace MyOwnACR
 
         // --- CONFIGURACIONES POR JOB ---
         public JobConfig_MNK Monk = new JobConfig_MNK();
-
-        // ¡ESTO ES LO QUE FALTABA!
         public JobConfig_BRD Bard = new JobConfig_BRD();
 
         // --- CONFIGURACIONES GENERALES ---

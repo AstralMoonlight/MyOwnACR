@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using MyOwnACR.JobConfigs; // Asumo que KeyBind está aquí o en Root
 
-namespace MyOwnACR.Models // <--- CAMBIO AQUÍ
+namespace MyOwnACR.Models
 {
     public class OpenerStep
     {

@@ -1,6 +1,8 @@
 // Archivo: GameData/SAM_ActionData.cs
 // Descripción: Registro de todas las habilidades de Samurai con sus metadatos.
 
+using MyOwnACR.Logic.Common;
+
 namespace MyOwnACR.GameData
 {
     public static class SAM_ActionData

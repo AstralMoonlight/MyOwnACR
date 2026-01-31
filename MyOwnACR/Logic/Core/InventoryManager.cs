@@ -1,6 +1,6 @@
 using FFXIVClientStructs.FFXIV.Client.Game;
 
-namespace MyOwnACR.Logic
+namespace MyOwnACR.Logic.Core
 {
     public static class InventoryManager
     {

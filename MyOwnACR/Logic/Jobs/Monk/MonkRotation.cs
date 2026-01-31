@@ -1,6 +1,6 @@
 // Archivo: Logic/MNK_Logic.cs
 // Descripción: Lógica de combate para Monje (Dawntrail 7.x).
-// VERSION: v3.8 - Fix Positional Data (Removed False Positionals).
+// VERSION: v3.9 - Interface Compatibility Patch.
 
 using System;
 using System.Linq;
@@ -14,15 +14,19 @@ using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using MyOwnACR.JobConfigs;
 using MyOwnACR.GameData;
-using MyOwnACR;
+using MyOwnACR.Logic.Core;
+using MyOwnACR.Logic.Interfaces;
+using MyOwnACR.Logic.Common;
+using InventoryManager = MyOwnACR.Logic.Core.InventoryManager;
 
-namespace MyOwnACR.Logic
+namespace MyOwnACR.Logic.Jobs.Monk
 {
-    public class MNK_Logic : IJobLogic
+    // CAMBIO 1: Añadido explicitamente ': IJobLogic'
+    public class MonkRotation : IJobLogic
     {
         // SINGLETON
-        public static MNK_Logic Instance { get; } = new MNK_Logic();
-        private MNK_Logic() { }
+        public static MonkRotation Instance { get; } = new MonkRotation();
+        private MonkRotation() { }
 
         public uint JobId => JobDefinitions.MNK;
 
@@ -57,10 +61,12 @@ namespace MyOwnACR.Logic
 
         // IMPLEMENTACIÓN DE INTERFAZ
         public void QueueManualAction(string actionName) { queuedManualAction = actionName; }
+
         public string GetQueuedAction() => queuedPriorityAction != 0 ? $"PRIORITY: {queuedPriorityAction}" : queuedManualAction;
         public void PrintDebugInfo(IChatGui chat) { }
 
-        public void QueueActionId(uint actionId)
+        // CAMBIO 2: Renombrado de QueueActionId a QueueManualAction para cumplir la interfaz IJobLogic
+        public void QueueManualAction(uint actionId)
         {
             queuedPriorityAction = actionId;
             queueExpirationTime = DateTime.Now.AddSeconds(2.0);
@@ -115,11 +121,8 @@ namespace MyOwnACR.Logic
         }
 
         // EXECUTE (Main Loop)
-        public unsafe void Execute(
-            ActionManager* am,
-            IPlayerCharacter player,
-            IObjectTable objectTable,
-            Configuration config)
+        // CAMBIO 3: Mantenemos el parámetro 'scheduler' aunque no se use dentro (Compatibility Patch)
+        public unsafe void Execute(ActionScheduler scheduler, ActionManager* am, IPlayerCharacter player, IObjectTable objectTable, Configuration config)
         {
             if (am == null || player == null || config == null) return;
 
@@ -171,7 +174,7 @@ namespace MyOwnACR.Logic
             wasInCombat = inCombat;
 
             // 1. EJECUCIÓN DE OPENER
-            if (OpenerManager.Instance.IsRunning)
+           /* if (OpenerManager.Instance.IsRunning)
             {
                 var (opActionId, opBind) = OpenerManager.Instance.GetNextAction(am, player, mnkConfig);
 
@@ -192,7 +195,7 @@ namespace MyOwnACR.Logic
                     return;
                 }
                 if (OpenerManager.Instance.IsRunning) return;
-            }
+            }*/
 
             // 2. MANUAL QUEUE
             if (!string.IsNullOrEmpty(queuedManualAction))

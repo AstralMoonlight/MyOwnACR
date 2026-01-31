@@ -473,6 +473,17 @@
             40: "SGE", 41: "VPR", 42: "PCT"
         };
 
+        // NUEVO: Mapeo de Nombres Completos para el Filtro de Openers
+        const JOB_FULL_NAMES = {
+            20: "Monk", 23: "Bard", 34: "Samurai",
+            19: "Paladin", 21: "Warrior", 22: "Dragoon", 30: "Ninja", 39: "Reaper",
+            31: "Machinist", 38: "Dancer", 25: "Black Mage", 27: "Summoner", 35: "Red Mage",
+            24: "White Mage", 28: "Scholar", 33: "Astrologian", 40: "Sage", 37: "Gunbreaker", 32: "Dark Knight",
+            41: "Viper", 42: "Pictomancer"
+        };
+
+        let cachedAllOpeners = []; // Caché de openers
+
         const hotkeySelect = document.getElementById("global_hotkey");
         Object.entries(KEYS).forEach(([code, label]) => {
             const opt = document.createElement("option");
@@ -538,7 +549,11 @@
                     badge.innerText = jobName;
                     badge.classList.remove("opacity-0");
 
+                    // 1. Pedir Pociones nuevas (El backend ya las filtra por Stat)
                     sendJson("get_potions");
+
+                    // 2. Filtrar Openers (Frontend side)
+                    filterOpenersByJob(d.job);
                 }
 
                 document.getElementById("target").innerText = d.target || "--";
@@ -626,16 +641,55 @@
         }
 
         function loadOpenerList(list) {
+            cachedAllOpeners = list;
+
+            // Si ya sabemos el Job, filtramos inmediatamente.
+            // Si no (al iniciar), mostramos todo o esperamos al primer status.
+            if (lastJobId !== -1) {
+                filterOpenersByJob(lastJobId);
+            } else {
+                // Carga inicial (mostrar todo por si acaso)
+                renderOpenerSelect(list);
+            }
+        }
+
+        function filterOpenersByJob(jobId) {
+            if (!cachedAllOpeners.length) return;
+
+            const abbr = JOB_NAMES[jobId] || ""; // Ej: "BRD"
+            const full = JOB_FULL_NAMES[jobId] || ""; // Ej: "Bard"
+
+            // Filtramos: El nombre del opener debe contener "BRD" o "Bard" (Case insensitive)
+            const filtered = cachedAllOpeners.filter(openerName => {
+                const n = openerName.toUpperCase();
+                return n.includes(abbr) || (full && n.includes(full.toUpperCase()));
+            });
+
+            if (filtered.length === 0) {
+                renderOpenerSelect([]);
+            } else {
+                renderOpenerSelect(filtered);
+            }
+        }
+
+        function renderOpenerSelect(list) {
             const sel = document.getElementById("opener_select");
-            const currentFromConfig = (currentConfig && currentConfig.Operation) ? currentConfig.Operation.SelectedOpener : "Ninguno";
+
             sel.innerHTML = '<option value="Ninguno">Ninguno</option>';
+
             list.forEach(name => {
                 const opt = document.createElement("option");
                 opt.value = name;
                 opt.innerText = name;
                 sel.appendChild(opt);
             });
-            if (currentFromConfig) sel.value = currentFromConfig;
+
+            // Recuperar selección si existe en la nueva lista, o si viene de Config
+            if (currentConfig && currentConfig.Operation && list.includes(currentConfig.Operation.SelectedOpener)) {
+                sel.value = currentConfig.Operation.SelectedOpener;
+            } else {
+                sel.value = "Ninguno";
+            }
         }
 
         function loadPotionList(list) {
@@ -656,11 +710,15 @@
             if (c.firstElementChild && c.firstElementChild.classList.contains('italic')) c.innerHTML = "";
             const line = document.createElement("div");
             line.className = `console-line ${colorClass}`;
-            const time = new Date().toLocaleTimeString().split(' ')[0];
-            line.innerHTML = `<span class="opacity-40 text-[0.6rem] mr-2 font-bold">[${time}]</span>${text}`;
+
+            const d = new Date();
+            const pad = (n, z = 2) => n.toString().padStart(z, '0');
+            const time = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+
+            line.innerHTML = `<span class="opacity-40 text-[0.6rem] mr-2 font-bold font-mono">[${time}]</span>${text}`;
             c.appendChild(line);
             c.scrollTop = c.scrollHeight;
-            if (c.children.length > 50) c.removeChild(c.firstChild);
+            if (c.children.length > 100) c.removeChild(c.firstChild);
         }
 
         function clearConsole() {
@@ -726,8 +784,6 @@
                 UseMemoryInput: getCheck("op_memory"),
                 UseOpener: getCheck("op_useopener"),
                 SelectedOpener: document.getElementById("opener_select").value,
-
-                // NUEVO: Envío de Config de Pociones
                 UsePotion: getCheck("op_usepotion"),
                 SelectedPotionId: parseInt(document.getElementById("potion_select").value) || 0
             };
@@ -738,8 +794,6 @@
         function sendJson(cmd, data = null) {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ cmd: cmd, data: data }));
-            } else {
-                //addLog("Error: No hay conexión con el Plugin", "text-error");
             }
         }
         function getCheck(id) { const el = document.getElementById(id); return el ? el.checked : false; }

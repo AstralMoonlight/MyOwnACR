@@ -3,6 +3,8 @@
         public static class BRD_IDs
         {
             // --- GCDs (Single Target) ---
+            public const uint HeavyShot = 97;
+            public const uint StraightShot = 98;
             public const uint BurstShot = 16495;        // Base: Heavy Shot (97)
             public const uint RefulgentArrow = 7409;    // Proc: Straight Shot (98)
             public const uint IronJaws = 3560;
@@ -11,15 +13,18 @@
             public const uint Windbite = 113;
 
             // --- GCDs (AoE) ---
+            public const uint QuickNock = 106;
             public const uint Ladonsbite = 25783;       // Base: Quick Nock (106)
             public const uint Shadowbite = 16494;
+            public const uint WideVolley = 115;
 
             // --- DoTs ---
             public const uint Stormbite = 7407;         // Base: Windbite (113)
             public const uint CausticBite = 7406;       // Base: Venomous Bite (100)
+            public const uint VenomousBite = 100;
 
-            // --- SONGS ---
-            public const uint WanderersMinuet = 3559;
+        // --- SONGS ---
+        public const uint WanderersMinuet = 3559;
             public const uint MagesBallad = 114;
             public const uint ArmysPaeon = 116;
 

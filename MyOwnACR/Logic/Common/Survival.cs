@@ -1,14 +1,14 @@
-// Archivo: Logic/Survival.cs
+// Archivo: Logic/Common/Survival.cs
 // Descripción: Lógica de supervivencia automática (Second Wind, Bloodbath).
-// ACTUALIZADO: Soporte para UseMemoryInput.
+// ACTUALIZADO: Usa InputSender.CastAction para unificar lógica de disparo.
 
 using System;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using MyOwnACR.JobConfigs;
-using MyOwnACR;
+using MyOwnACR.Logic.Core;
 
-namespace MyOwnACR.Logic
+namespace MyOwnACR.Logic.Common
 {
     public static class Survival
     {
@@ -26,10 +26,6 @@ namespace MyOwnACR.Logic
             // Evitar spamear curas demasiado rápido (1.5s delay global)
             if ((DateTime.Now - LastHealTime).TotalSeconds < 1.5) return false;
 
-            // Obtenemos el ajuste operativo directamente desde la instancia del plugin
-            // para saber si usamos memoria o teclado.
-            bool useMemory = Plugin.Instance.Config.Operation.UseMemoryInput;
-
             float hpPercent = (float)player.CurrentHp / player.MaxHp * 100f;
 
             // 1. SECOND WIND
@@ -38,7 +34,7 @@ namespace MyOwnACR.Logic
                 // ID Second Wind: 7541
                 if (CanUse(am, 7541))
                 {
-                    ExecuteHeal(am, 7541, secondWindBind, player.GameObjectId, useMemory);
+                    ExecuteHeal(7541);
                     return true;
                 }
             }
@@ -49,7 +45,7 @@ namespace MyOwnACR.Logic
                 // ID Bloodbath: 7542
                 if (CanUse(am, 7542))
                 {
-                    ExecuteHeal(am, 7542, bloodbathBind, player.GameObjectId, useMemory);
+                    ExecuteHeal(7542);
                     return true;
                 }
             }
@@ -57,26 +53,13 @@ namespace MyOwnACR.Logic
             return false;
         }
 
-        private unsafe static void ExecuteHeal(
-            ActionManager* am,
-            uint actionId,
-            KeyBind bind,
-            ulong playerId,
-            bool useMemory)
+        private static void ExecuteHeal(uint actionId)
         {
-            if (useMemory)
-            {
-                // Inyección Directa (Target = Player)
-                am->UseAction(ActionType.Action, actionId, playerId);
-            }
-            else
-            {
-                // Simulación Teclado
-                InputSender.Send(bind.Key, bind.Bar, false);
-            }
+            // InputSender ya sabe si usar memoria o teclado según la config global
+            InputSender.CastAction(actionId);
 
             LastHealTime = DateTime.Now;
-            // Opcional: Plugin.Instance.SendLog($"Survival Triggered: ID {actionId}");
+            // Plugin.Instance.SendLog($"Survival Triggered: ID {actionId}");
         }
 
         private unsafe static bool CanUse(ActionManager* am, uint actionId)

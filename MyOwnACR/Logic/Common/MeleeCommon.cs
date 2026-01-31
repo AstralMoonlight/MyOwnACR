@@ -1,15 +1,16 @@
-// Archivo: Logic/MeleeCommon.cs
-// Descripción: Lógica compartida para clases Melee (Posicionales, True North).
-// ESTADO: CORREGIDO (Añadido parámetro isGCD=false para True North).
+// Archivo: Logic/Common/MeleeCommon.cs
+// Descripción: Lógica compartida para posicionamiento y True North.
+// ACTUALIZADO: Compatible con InputSender.CastAction (Memoria/Teclado).
 
 using System;
 using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using MyOwnACR.GameData;
-using MyOwnACR;
+using MyOwnACR.Logic.Core;
+using MyOwnACR.JobConfigs; // Para KeyBind
 
-namespace MyOwnACR.Logic
+namespace MyOwnACR.Logic.Common
 {
     public static class MeleeCommon
     {
@@ -19,7 +20,7 @@ namespace MyOwnACR.Logic
 
         /// <summary>
         /// Maneja la lógica automática de True North.
-        /// Retorna true si se usó True North (y por tanto consumió un weave/acción).
+        /// Retorna true si se usó True North.
         /// </summary>
         public static unsafe bool HandleTrueNorth(
             ActionManager* am,
@@ -42,15 +43,14 @@ namespace MyOwnACR.Logic
             // Si NO estamos en posición y True North está listo
             if (!inPosition)
             {
-                // ActionType se refiere a FFXIVClientStructs (asumiendo que renombramos el nuestro a ActionCooldownType)
-                if (am->GetRecastTime(ActionType.Action, TrueNorth) == 0)
+                if (am->GetActionStatus(ActionType.Action, TrueNorth) == 0)
                 {
-                    // FIX: Añadido 'false' porque True North es un oGCD
-                    InputSender.Send(trueNorthBind.Key, trueNorthBind.Bar, false);
+                    // Usamos InputSender centralizado (Soporta Memoria y Teclado)
+                    InputSender.CastAction(TrueNorth);
 
                     lastAction = TrueNorth;
                     lastTime = DateTime.Now;
-                    Plugin.Instance.SendLog("Auto True North: Activado (Fuera de posición)");
+                    // Plugin.Instance.SendLog("Auto True North: Activado (Fuera de posición)");
                     return true;
                 }
             }

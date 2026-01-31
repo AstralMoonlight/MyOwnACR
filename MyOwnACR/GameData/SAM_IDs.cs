@@ -77,9 +77,11 @@ namespace MyOwnACR.GameData
         public const ushort Status_Fugetsu = 0;
         public const ushort Status_Fuka = 0;
         public const ushort Status_OgiNamikiriReady = 0;
-        public const ushort Status_TsubameGaeshiReady = 0;
+        public const ushort Status_TsubameReady = 4216;
+        public const ushort Status_TendoReady = 3856;
         public const ushort Status_ThirdEye = 0;
         public const ushort Status_Tengentsu = 3853; // ID real
         public const ushort Status_Meditate = 1231;  // ID real
+        
     }
 }
