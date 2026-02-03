@@ -1,6 +1,6 @@
 // Archivo: Logic/Jobs/Bard/BardContext.cs
-// VERSIÓN: V19.4 - ENCORE TRACKING
-// Descripción: Contexto de combate. Ahora rastrea el tiempo restante de Radiant Encore.
+// VERSIÓN: V22.0 - HELPER INTEGRATION
+// Descripción: Contexto que usa Helpers.CanUse para corregir los tiempos de CD.
 
 using System;
 using System.Linq;
@@ -10,6 +10,7 @@ using Dalamud.Game.ClientState.JobGauge.Enums;
 using MyOwnACR.GameData;
 using MyOwnACR.Logic.Core;
 using Dalamud.Game.ClientState.Objects.SubKinds;
+using Dalamud.Game.ClientState.Objects.Types;
 
 namespace MyOwnACR.Logic.Jobs.Bard
 {
@@ -47,11 +48,8 @@ namespace MyOwnACR.Logic.Jobs.Bard
         public float RadiantFinaleTimeLeft;
 
         public bool IsBattleVoiceActive;
-
-        // NUEVO: Rastreo de proc para lógica avanzada
         public float RadiantEncoreTimeLeft;
 
-        // Pide 'player' para leer buffs con seguridad
         public void Update(ActionManager* am, BRDGauge gauge, ActionScheduler scheduler, IPlayerCharacter player)
         {
             if (am == null || player == null) return;
@@ -62,7 +60,7 @@ namespace MyOwnACR.Logic.Jobs.Bard
             Repertoire = gauge.Repertoire;
             SoulVoice = gauge.SoulVoice;
 
-            // Conteo manual de Coda
+            // Coda
             CodaCount = 0;
             if (gauge.Coda[0] != Song.None) CodaCount++;
             if (gauge.Coda[1] != Song.None) CodaCount++;
@@ -75,7 +73,7 @@ namespace MyOwnACR.Logic.Jobs.Bard
             // 3. RECURSOS
             BloodletterCharges = (int)am->GetCurrentCharges(BRD_IDs.Bloodletter);
 
-            // 4. COOLDOWNS
+            // 4. COOLDOWNS (Usando el método corregido)
             BloodletterCD = GetCooldownRemaining(am, BRD_IDs.Bloodletter);
             EmpyrealCD = GetCooldownRemaining(am, BRD_IDs.EmpyrealArrow);
             MinuetCD = GetCooldownRemaining(am, BRD_IDs.WanderersMinuet);
@@ -92,7 +90,6 @@ namespace MyOwnACR.Logic.Jobs.Bard
 
         private void UpdateBuffs(IPlayerCharacter player)
         {
-            // Reset
             IsRagingStrikesActive = false;
             RagingStrikesTimeLeft = 0;
             IsRadiantFinaleActive = false;
@@ -116,7 +113,6 @@ namespace MyOwnACR.Logic.Jobs.Bard
                 {
                     IsBattleVoiceActive = true;
                 }
-                // NUEVO: Rastreo del proc de Encore
                 else if (status.StatusId == BRD_IDs.Status_RadiantEncoreReady)
                 {
                     RadiantEncoreTimeLeft = status.RemainingTime;
@@ -124,11 +120,25 @@ namespace MyOwnACR.Logic.Jobs.Bard
             }
         }
 
+        // =========================================================================
+        // EL FIX MAESTRO
+        // =========================================================================
         private float GetCooldownRemaining(ActionManager* am, uint actionId)
         {
-            float total = am->GetRecastTime(ActionType.Action, actionId);
+            // 1. PREGUNTA DIRECTA AL JUEGO (Vía Helper)
+            // Si el juego dice que se puede usar (Status 0), el CD es 0.
+            // Esto evita cualquier error matemático cuando elapsed es 0.
+            if (Helpers.CanUse(am, actionId)) return 0;
+
+            // 2. CÁLCULO DE RESPALDO
             float elapsed = am->GetRecastTimeElapsed(ActionType.Action, actionId);
-            return (total > 0) ? Math.Max(0, total - elapsed) : 0;
+            float total = am->GetRecastTime(ActionType.Action, actionId);
+
+            // Si llegamos aquí, CanUse dio falso, así que hay CD o bloqueo.
+            // Si elapsed es 0 pero CanUse falló, asumimos que acaba de usarse (CD total).
+            if (elapsed == 0) return total;
+
+            return Math.Max(0, total - elapsed);
         }
     }
 }
