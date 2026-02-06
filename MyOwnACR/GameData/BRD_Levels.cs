@@ -23,7 +23,7 @@ namespace MyOwnACR.GameData
         // --  JOB
         public const int MagesBallad = 30;
         public const int TheWardensPaean = 35;
-        public const int ArmysPaean = 40;
+        public const int ArmysPaeon = 40;
         public const int RainOfDeath = 45;
         public const int BattleVoice = 50;
         public const int TheWanderersMinuet = 52;
