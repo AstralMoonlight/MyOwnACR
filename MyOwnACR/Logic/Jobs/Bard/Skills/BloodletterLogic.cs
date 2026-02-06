@@ -1,6 +1,9 @@
 // Archivo: Logic/Jobs/Bard/Skills/BloodletterLogic.cs
-// Descripción: Lógica de Pooling para Heartbreak Shot / Bloodletter.
-// REGLA: "Guardar 2 cargas para Raging Strikes, gastar solo para evitar Overcap".
+// VERSIÓN: V3.0 - BUFF SYNCHRONIZATION
+// DESCRIPCIÓN: Gestión de cargas de Heartbreak Shot / Rain of Death.
+//              - Burst: Gasta todo, pero ESPERA a que salgan todos los buffs.
+//              - Ballad: Gasta agresivo.
+//              - Paeon: Guarda (Pool) para el burst.
 
 using MyOwnACR.GameData;
 using MyOwnACR.Logic.Core;
@@ -10,17 +13,19 @@ namespace MyOwnACR.Logic.Jobs.Bard.Skills
 {
     public static class BloodletterLogic
     {
+        private const float OVERCAP_SAFETY_THRESHOLD = 3.0f;
+
         public static OgcdPlan? GetPlan(BardContext ctx, int playerLevel, bool useAoE)
         {
-            // 1. ID CORRECTO
+            // 0. SIN CARGAS -> SALIR
+            if (ctx.BloodletterCharges == 0) return null;
+
+            // 1. SELECCIÓN DE ID
             uint actionId;
             if (useAoE)
                 actionId = (playerLevel >= BRD_Levels.RainOfDeath) ? BRD_IDs.RainOfDeath : BRD_IDs.Bloodletter;
             else
                 actionId = (playerLevel >= BRD_Levels.HeartbreakShot) ? BRD_IDs.HeartbreakShot : BRD_IDs.Bloodletter;
-
-            // Sin cargas, nada que hacer
-            if (ctx.BloodletterCharges == 0) return null;
 
             int maxCharges = (playerLevel >= 84) ? 3 : 2;
 
@@ -29,48 +34,75 @@ namespace MyOwnACR.Logic.Jobs.Bard.Skills
             // -------------------------------------------------------------------------
             if (ctx.IsRagingStrikesActive)
             {
-                // Prioridad High para vaciar rápido dentro de la ventana de buffs
+                // [NUEVO] SYNC CHECK
+                // Si RS está activo, pero Battle Voice o Radiant Finale están "Listos" (CD < 2s),
+                // significa que el bot los va a tirar pronto.
+                // Es mejor esperar 1 o 2 GCDs para meter los Heartbreak Shot con TODOS los buffs.
+
+                // EXCEPCIÓN: Si estamos a punto de hacer Overcap (3 cargas), ignoramos la espera
+                // y disparamos igual, porque perder una carga es peor que perder un buff.
+                if (ctx.BloodletterCharges < maxCharges) // Solo si tenemos espacio para esperar
+                {
+                    if (ShouldWaitForBuffs(ctx, playerLevel))
+                    {
+                        return null; // Hold (Espera a BV/RF)
+                    }
+                }
+
+                // Si ya salieron los buffs (o estamos llenos), FUEGO.
                 return new OgcdPlan(actionId, WeavePriority.High, WeaveSlot.Any);
             }
 
             // -------------------------------------------------------------------------
-            // ESCENARIO 2: MAGE'S BALLAD (Procs Aleatorios) -> NO POOLING
+            // ESCENARIO 2: MAGE'S BALLAD (Reducción de CD) -> NO POOLING
             // -------------------------------------------------------------------------
-            // En Balada, los procs resetean/reducen el CD. Si guardamos cargas, 
-            // es muy probable que perdamos procs por overcap.
-            // Estrategia: Mantener vacío.
             if (ctx.CurrentSong == Song.Mage)
             {
-                // Gastar siempre que tengamos algo, para hacer espacio al siguiente proc.
                 return new OgcdPlan(actionId, WeavePriority.Normal, WeaveSlot.Any);
             }
 
             // -------------------------------------------------------------------------
-            // ESCENARIO 3: POOLING (Army's Paeon / Minuet sin Burst)
+            // ESCENARIO 3: POOLING (Army's Paeon / Minuet sin Burst / Sin Canción)
             // -------------------------------------------------------------------------
-            // Aquí queremos llegar al próximo Raging Strikes con 3 cargas (o casi).
 
-            // A. Tenemos 3 Cargas (Lleno) -> Gastar UNA obligatoriamente para activar el timer.
+            // A. ESTAMOS LLENOS (Overcap Inminente) -> GASTAR
             if (ctx.BloodletterCharges >= maxCharges)
             {
                 return new OgcdPlan(actionId, WeavePriority.High, WeaveSlot.Any);
             }
 
-            // B. Tenemos 2 Cargas -> Zona de Peligro
-            // Solo gastamos si la 3ra carga está a punto de llegar (< 4s).
-            // Si falta mucho para la 3ra carga, GUARDAMOS las 2 actuales.
+            // B. ESTAMOS "CASI" LLENOS (Zona de Riesgo)
             if (ctx.BloodletterCharges == maxCharges - 1)
             {
-                // ctx.BloodletterCD es el tiempo que falta para recuperar una carga.
-                if (ctx.BloodletterCD < 4.0f)
+                if (ctx.BloodletterCD < OVERCAP_SAFETY_THRESHOLD)
                 {
                     return new OgcdPlan(actionId, WeavePriority.Normal, WeaveSlot.Any);
                 }
-                return null; // HOLD
+                return null; // Hold
             }
 
-            // C. Tenemos 0 o 1 Carga -> GUARDAR (HOLD)
+            // C. POCAS CARGAS -> HOLD
             return null;
+        }
+
+        // =========================================================================
+        // HELPER: Detecta si faltan buffs por salir (Mismo que en ApexLogic)
+        // =========================================================================
+        private static bool ShouldWaitForBuffs(BardContext ctx, int level)
+        {
+            if (level < BRD_Levels.BattleVoice) return false;
+
+            // Battle Voice listo? (CD < 2s)
+            bool waitingForBV = (ctx.BattleVoiceCD < 2.0f);
+
+            // Radiant Finale listo?
+            bool waitingForRF = false;
+            if (level >= BRD_Levels.RadiantFinale)
+            {
+                waitingForRF = (ctx.RadiantFinaleCD < 2.0f);
+            }
+
+            return waitingForBV || waitingForRF;
         }
     }
 }

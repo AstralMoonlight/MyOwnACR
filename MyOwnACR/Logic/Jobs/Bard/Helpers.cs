@@ -5,6 +5,7 @@
 using Dalamud.Game.ClientState.Objects.Types;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Keys;
+using Dalamud.Game.ClientState.Objects.Enums; // NECESARIO PARA StatusFlags
 using FFXIVClientStructs.FFXIV.Client.Game;
 using MyOwnACR.GameData;
 
@@ -12,6 +13,33 @@ namespace MyOwnACR.Logic.Jobs.Bard
 {
     public static unsafe class Helpers
     {
+        // =========================================================================
+        // VALIDACIONES DE ESTADO (COMBATE)
+        // =========================================================================
+
+        // Verifica si el JUGADOR tiene la bandera de combate (espadas cruzadas)
+        public static bool IsPlayerInCombat()
+        {
+            return Plugin.Condition?[Dalamud.Game.ClientState.Conditions.ConditionFlag.InCombat] ?? false;
+        }
+
+        // Verifica si el TARGET específico está en combate (tiene aggro)
+        public static bool IsTargetInCombat(IGameObject? target)
+        {
+            if (target is IBattleChara chara)
+            {
+                return chara.StatusFlags.HasFlag(StatusFlags.InCombat);
+            }
+            return false;
+        }
+
+        // Verifica la condición global: ¿Estoy peleando O le estoy pegando a algo que pelea?
+        // Esto es útil para iniciar rotaciones en Dummies o bosses que no te targetean a ti.
+        public static bool IsRealCombat(IPlayerCharacter player)
+        {
+            return IsPlayerInCombat() || IsTargetInCombat(player.TargetObject);
+        }
+
         // =========================================================================
         // CONSULTAS DE COMBATE (DoTs)
         // =========================================================================

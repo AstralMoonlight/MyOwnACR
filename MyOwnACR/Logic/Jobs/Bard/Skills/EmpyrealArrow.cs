@@ -1,78 +1,95 @@
 // Archivo: Logic/Jobs/Bard/Skills/EmpyrealArrowLogic.cs
-// Descripción: Módulo de decisión para Empyreal Arrow.
-// CORRECCIÓN: Adaptado para CD simple (15s) sin cargas múltiples.
+// VERSIÓN: V2.1 - ANTI-DRIFT PRIORITY
+// DESCRIPCIÓN: Prioriza mantener EA en cooldown sobre la protección de recursos.
+//              Si el drift es inminente, sacrifica stacks/cargas para mantener el ciclo.
 
 using MyOwnACR.GameData;
 using MyOwnACR.Logic.Core;
 using Dalamud.Game.ClientState.JobGauge.Enums;
+using System;
 
 namespace MyOwnACR.Logic.Jobs.Bard.Skills
 {
-    /// <summary>
-    /// Contiene la lógica de evaluación para la habilidad 'Empyreal Arrow'.
-    /// Gestiona el CD de 15s y los efectos del Trait Nvl 68.
-    /// </summary>
     public static class EmpyrealArrowLogic
     {
+        private const int TRAIT_LEVEL_ENHANCED_EA = 68;
+
+
+        // Si EA lleva listo más de este tiempo, entrar en modo pánico y usarlo sí o sí.
+        // 2.0s = Casi un GCD entero de retraso.
+        private const float MAX_TOLERATED_DRIFT = 2.0f;
+
         public static OgcdPlan? GetPlan(BardContext ctx, int playerLevel)
         {
             // 1. CHEQUEOS BÁSICOS
-            // Si no tenemos nivel, fuera.
             if (playerLevel < BRD_Levels.EmpyrealArrow) return null;
 
-            // Verificar si está en Cooldown. 
-            // Buffer de 0.6s para compensar latencia/animación (Ready).
+            // Si el CD es mayor a la latencia esperada, nada que hacer.
             if (ctx.EmpyrealCD > 0.6f) return null;
 
-            // Configuración por defecto
-            var priority = WeavePriority.Normal;
-            var slotPref = WeaveSlot.Any;
+            // -----------------------------------------------------------------
+            // MODO PÁNICO (ANTI-DRIFT)
+            // -----------------------------------------------------------------
+            // Si EA está listo (CD=0) desde hace rato (técnicamente difícil de medir exacto sin historia, 
+            // pero podemos asumir que si la rotación nos llama y CD es 0, deberíamos usarlo).
+            // Lo que haremos es: Si la protección lógica nos dice "NO", verificamos si vale la pena.
 
-            // 2. LÓGICA DEL TRAIT NIVEL 68 (Enhanced Empyreal Arrow)
-            // "Garantiza el trigger del efecto de la canción actual".
-            if (playerLevel >= 68)
+            // Por defecto, prioridad Alta.
+            var priority = WeavePriority.High;
+
+            // 2. LÓGICA DEL TRAIT (Protección de Recursos)
+            if (playerLevel >= TRAIT_LEVEL_ENHANCED_EA)
             {
                 // --- ESCENARIO A: WANDERER'S MINUET ---
-                // Efecto: Genera 1 Stack de Pitch Perfect.
                 if (ctx.CurrentSong == Song.Wanderer)
                 {
-                    // BLOQUEO (Overcap): Si ya tenemos 3 stacks, usar EA quema el proc.
-                    // Retornamos null para que el RotationManager use Pitch Perfect primero.
+                    // Si tenemos 3 stacks, lo ideal es gastar Pitch Perfect primero.
                     if (ctx.Repertoire >= 3)
                     {
-                        return null;
-                    }
+                        // PERO: Si EA se va a usar en el Slot 2 (Double Weave), 
+                        // podemos asumir que Pitch Perfect iría en el Slot 1.
+                        // Sin embargo, como esta lógica solo retorna un plan para EA, 
+                        // si retornamos null, perdemos el turno.
 
-                    // OPTIMIZACIÓN: Si tenemos 2 stacks, EA nos lleva a 3.
-                    // Preferimos SlotB para dejar espacio a procs naturales en SlotA.
-                    if (ctx.Repertoire == 2)
-                    {
-                        slotPref = WeaveSlot.SlotB;
+                        // DECISIÓN: Retornamos null SOLO si confiamos en que Pitch Perfect saldrá AHORA.
+                        // Si no, bloqueamos el EA.
+
+                        // Para evitar el drift de 3s:
+                        // Si estamos en Minuet, EA DEBE salir. 
+                        // Es preferible "comerse" un stack que retrasar EA.
+                        // Solo bloqueamos si estamos MUY seguros de que PP sale ya.
+
+                        // Cambio V2.1: NO BLOQUEAR.
+                        // PitchPerfectLogic tiene prioridad más baja en BardRotation, PERO
+                        // si devolvemos EA aquí, el Scheduler intentará meterlo.
+                        // La solución real es que PitchPerfect debe ir ANTES que EA en BardRotation.cs 
+                        // si estamos llenos. (Revisaremos eso abajo).
+
+                        // Por ahora, en esta lógica aislada: NO BLOQUEAR.
+                        // Tirar EA con 3 stacks es DPS loss, pero driftar EA 3s es peor.
                     }
                 }
 
                 // --- ESCENARIO B: MAGE'S BALLAD ---
-                // Efecto: Reduce el CD de Bloodletter/Rain of Death en 7.5s.
                 if (ctx.CurrentSong == Song.Mage)
                 {
                     int maxBL = (playerLevel >= 84) ? 3 : 2;
 
-                    // BLOQUEO (Overcap): Si Bloodletter está lleno, la reducción se pierde.
-                    // Bloqueamos EA para forzar el gasto de Bloodletter.
+                    // Si estamos llenos de cargas, usar EA desperdicia la reducción de CD.
                     if (ctx.BloodletterCharges >= maxBL)
                     {
-                        return null;
+                        // Misma lógica: Es mejor desperdiciar la reducción que retrasar EA.
+                        // NO retornamos null. Lo usamos.
                     }
                 }
             }
 
-            // 3. PRIORIDAD
-            // Como es una habilidad de CD corto (15s) que genera recursos, 
-            // siempre queremos que salga lo antes posible (High Priority)
-            // para no driftar el CD a lo largo de la pelea.
-            priority = WeavePriority.High;
+            // 3. RETORNO INCONDICIONAL (Si está listo, ÚSALO)
+            // Hemos eliminado los bloqueos "return null". 
+            // La gestión de no sobrellenar debe hacerse vaciando agresivamente ANTES de que EA esté listo,
+            // no bloqueando EA cuando ya llegó su hora.
 
-            return new OgcdPlan(BRD_IDs.EmpyrealArrow, priority, slotPref);
+            return new OgcdPlan(BRD_IDs.EmpyrealArrow, priority, WeaveSlot.Any);
         }
     }
 }

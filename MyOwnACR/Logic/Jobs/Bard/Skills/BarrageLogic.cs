@@ -1,14 +1,12 @@
 // Archivo: Logic/Jobs/Bard/Skills/BarrageLogic.cs
-// Descripción: Gestión de Barrage.
+// DESCRIPCIÓN: Gestión de Barrage.
 // Lógica: Solo usar bajo Raging Strikes y SIN sobreescribir procs existentes.
 
+using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Objects.Types;
 using MyOwnACR.GameData;
 using MyOwnACR.Logic.Core;
-
-using Dalamud.Game.ClientState.Objects.SubKinds;
-
-
+using MyOwnACR.Logic.Jobs.Bard;
 
 namespace MyOwnACR.Logic.Jobs.Bard.Skills
 {
@@ -16,31 +14,34 @@ namespace MyOwnACR.Logic.Jobs.Bard.Skills
     {
         public static OgcdPlan? GetPlan(BardContext ctx, IPlayerCharacter player)
         {
-            // 1. Chequeo Básico (Nivel y Cooldown)
+            // 1. Validaciones Básicas
             if (player.Level < BRD_Levels.Barrage) return null;
             if (ctx.BarrageCD > 0.6f) return null;
 
-            // 2. Alineación con Burst
-            // Barrage es tan fuerte que SIEMPRE debe ir dentro de Raging Strikes.
+            // 2. Alineación con Burst (Raging Strikes)
+            // Barrage triplica el daño. Es obligatorio que esté dentro del buff de daño (+15%).
             if (!ctx.IsRagingStrikesActive) return null;
 
-            // 3. Protección de Procs (IMPORTANTE)
-            // Barrage nos regala un proc de "Straight Shot Ready".
-            // Si YA tenemos ese proc (o el de Shadowbite), debemos gastarlo con un GCD antes de usar Barrage.
-            // De lo contrario, "chancamos" (overwrite) el proc y perdemos daño.
-
+            // 3. Protección de Procs (ANTI-OVERWRITE)
+            // Barrage otorga "Straight Shot Ready".
+            // Si ya tenemos ese proc, debemos gastarlo con un GCD antes de activar Barrage.
             bool hasRefulgentProc = Helpers.HasStatus(player, BRD_IDs.Status_StraightShotReady);
             bool hasShadowbiteProc = Helpers.HasStatus(player, BRD_IDs.Status_ShadowbiteReady);
 
-            // Excepción: Si Raging Strikes está a punto de morir (< 1s), lo tiramos igual por pánico.
-            // Pero en condiciones normales, si hay proc, esperamos al siguiente turno.
-            if ((hasRefulgentProc || hasShadowbiteProc) && ctx.RagingStrikesTimeLeft > 2.0f)
+            // EXCEPCIÓN: Pánico
+            // Si Raging Strikes está a punto de acabarse (< 1s), ignoramos la protección
+            // y lanzamos Barrage igual para no perder el CD de 2 minutos.
+            bool panicMode = ctx.RagingStrikesTimeLeft < 1.5f;
+
+            if ((hasRefulgentProc || hasShadowbiteProc) && !panicMode)
             {
+                // Retornamos null para que la rotación use primero el proc (Refulgent Arrow)
+                // y en el siguiente ciclo activaremos Barrage.
                 return null;
             }
 
             // 4. Ejecución
-            // Usamos WeaveSlot.Any para que entre donde sea necesario.
+            // Barrage es prioritario dentro del burst.
             return new OgcdPlan(BRD_IDs.Barrage, WeavePriority.High, WeaveSlot.Any);
         }
     }
