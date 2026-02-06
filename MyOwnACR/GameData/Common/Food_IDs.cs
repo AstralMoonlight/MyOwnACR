@@ -2,7 +2,7 @@
 // Descripción: IDs de Comidas (Meals) para buffs de estadísticas.
 // HQ ID = Base ID + 1,000,000.
 
-namespace MyOwnACR.GameData
+namespace MyOwnACR.GameData.Common
 {
     public static class Food_IDs
     {

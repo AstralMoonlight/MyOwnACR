@@ -8,10 +8,10 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using FFXIVClientStructs.FFXIV.Client.Game;
-using MyOwnACR.GameData;
 using MyOwnACR.JobConfigs;
 using MyOwnACR.Logic.Core; // Para acceder a Plugin.Instance.Config
 using Dalamud.Game.ClientState.Objects.SubKinds;
+using MyOwnACR.GameData.Common;
 
 namespace MyOwnACR.Logic.Common // Nota: Asegúrate que el namespace sea correcto (Common o Core)
 {

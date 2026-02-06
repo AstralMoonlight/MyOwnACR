@@ -1,4 +1,4 @@
-namespace MyOwnACR.GameData
+namespace MyOwnACR.GameData.Jobs.Monk
 {
     public static class MNK_IDs
     {

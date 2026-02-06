@@ -2,9 +2,9 @@
 // DESCRIPCIÓN: Gestión del GCD Resonant Arrow (Nvl 96+).
 // Se activa tras usar Barrage.
 
-using MyOwnACR.GameData;
 using MyOwnACR.Logic.Jobs.Bard;
 using Dalamud.Game.ClientState.Objects.SubKinds;
+using MyOwnACR.GameData.Jobs.Bard;
 namespace MyOwnACR.Logic.Jobs.Bard.Skills
 {
     public static class ResonantLogic

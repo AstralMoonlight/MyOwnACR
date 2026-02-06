@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace MyOwnACR.GameData
+namespace MyOwnACR.GameData.Common
 {
     public static class Potion_IDs
     {

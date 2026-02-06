@@ -3,7 +3,7 @@
 // DESCRIPCIÓN: Gestión de Sidewinder. 
 //              Prioriza el uso dentro de Raging Strikes y corrige drifts leves.
 
-using MyOwnACR.GameData;
+using MyOwnACR.GameData.Jobs.Bard;
 using MyOwnACR.Logic.Core;
 
 namespace MyOwnACR.Logic.Jobs.Bard.Skills

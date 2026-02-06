@@ -3,12 +3,14 @@ using Dalamud.IoC;
 using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using System;
-using MyOwnACR.GameData;
 using MyOwnACR.Network;
 using MyOwnACR.Services;
 using MyOwnACR.Logic.Core;
 using MyOwnACR.Logic.Common;
 using MyOwnACR.JobConfigs;
+using MyOwnACR.GameData.Jobs.Bard;
+using MyOwnACR.GameData.Jobs.Monk;
+using MyOwnACR.GameData.Jobs.Samurai;
 
 namespace MyOwnACR
 {

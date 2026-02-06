@@ -1,10 +1,11 @@
+using MyOwnACR.GameData.Common;
 using MyOwnACR.Logic.Common;
 using MyOwnACR.Logic.Core;
 
 // Archivo: GameData/BRD_ActionData.cs
 // CORRECCIÓN: Los nombres (Strings) ahora coinciden con los KeyName del JSON (Sin espacios).
 
-namespace MyOwnACR.GameData
+namespace MyOwnACR.GameData.Jobs.Bard
 {
     public static class BRD_ActionData
     {

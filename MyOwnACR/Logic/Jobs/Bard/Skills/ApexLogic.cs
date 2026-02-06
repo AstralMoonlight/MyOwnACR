@@ -5,7 +5,7 @@
 //              - Paeon: Gasta al inicio, Guarda (Hold) al final.
 
 using Dalamud.Game.ClientState.JobGauge.Enums;
-using MyOwnACR.GameData;
+using MyOwnACR.GameData.Jobs.Bard;
 using MyOwnACR.Logic.Core;
 
 namespace MyOwnACR.Logic.Jobs.Bard.Skills

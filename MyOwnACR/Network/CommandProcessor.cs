@@ -4,13 +4,13 @@
 
 using MyOwnACR.Logic.Core;
 using MyOwnACR.Models;
-using MyOwnACR.GameData;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Linq;
 using System.Collections.Generic;
 using Dalamud.Game.ClientState.Keys;
-using Dalamud.Plugin.Services; // Para IFramework
+using Dalamud.Plugin.Services;
+using MyOwnACR.GameData.Common; // Para IFramework
 
 namespace MyOwnACR.Network
 {

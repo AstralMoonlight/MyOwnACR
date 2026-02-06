@@ -4,7 +4,7 @@
 
 using MyOwnACR.Logic.Common;
 
-namespace MyOwnACR.GameData
+namespace MyOwnACR.GameData.Jobs.Monk
 {
     public static class MNK_ActionData
     {

@@ -3,7 +3,7 @@
 // DESCRIPCIÓN: Prioriza mantener DoTs pero respeta los procs de Refulgent Arrow.
 
 using System;
-using MyOwnACR.GameData;
+using MyOwnACR.GameData.Jobs.Bard;
 
 namespace MyOwnACR.Logic.Jobs.Bard.Skills
 {

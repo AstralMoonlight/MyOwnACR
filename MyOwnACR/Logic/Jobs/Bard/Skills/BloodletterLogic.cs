@@ -5,9 +5,9 @@
 //              - Ballad: Gasta agresivo.
 //              - Paeon: Guarda (Pool) para el burst.
 
-using MyOwnACR.GameData;
 using MyOwnACR.Logic.Core;
 using Dalamud.Game.ClientState.JobGauge.Enums;
+using MyOwnACR.GameData.Jobs.Bard;
 
 namespace MyOwnACR.Logic.Jobs.Bard.Skills
 {

@@ -1,4 +1,4 @@
-    namespace MyOwnACR.GameData
+namespace MyOwnACR.GameData.Jobs.Bard
     {
         public static class BRD_IDs
         {

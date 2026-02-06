@@ -3,10 +3,10 @@
 // DESCRIPCIÓN: Prioriza mantener EA en cooldown sobre la protección de recursos.
 //              Si el drift es inminente, sacrifica stacks/cargas para mantener el ciclo.
 
-using MyOwnACR.GameData;
 using MyOwnACR.Logic.Core;
 using Dalamud.Game.ClientState.JobGauge.Enums;
 using System;
+using MyOwnACR.GameData.Jobs.Bard;
 
 namespace MyOwnACR.Logic.Jobs.Bard.Skills
 {

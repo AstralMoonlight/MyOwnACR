@@ -2,9 +2,9 @@
 // VERSIÓN: V2.1 - ANTI-DRIFT SAFETY
 // DESCRIPCIÓN: Gestión de Pitch Perfect con zona de seguridad estricta para proteger la canción.
 
-using MyOwnACR.GameData;
 using MyOwnACR.Logic.Core;
 using Dalamud.Game.ClientState.JobGauge.Enums;
+using MyOwnACR.GameData.Jobs.Bard;
 
 namespace MyOwnACR.Logic.Jobs.Bard.Skills
 {

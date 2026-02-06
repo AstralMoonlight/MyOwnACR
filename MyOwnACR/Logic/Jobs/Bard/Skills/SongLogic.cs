@@ -2,9 +2,9 @@
 // VERSIÓN: V3.1 - FIX OPENER PRIORITY
 // DESCRIPCIÓN: Estrategia 3-6-9 con corrección para evitar Ballad en el Opener.
 
-using MyOwnACR.GameData;
 using MyOwnACR.Logic.Core;
 using Dalamud.Game.ClientState.JobGauge.Enums;
+using MyOwnACR.GameData.Jobs.Bard;
 
 namespace MyOwnACR.Logic.Jobs.Bard.Skills
 {

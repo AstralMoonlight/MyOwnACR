@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-namespace MyOwnACR.GameData
+namespace MyOwnACR.GameData.Jobs.Bard
 {
     internal class BRD_Traits
     {

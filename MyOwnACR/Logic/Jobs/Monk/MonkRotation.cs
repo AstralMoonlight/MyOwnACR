@@ -13,11 +13,12 @@ using Dalamud.Game.ClientState.JobGauge.Enums;
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using MyOwnACR.JobConfigs;
-using MyOwnACR.GameData;
 using MyOwnACR.Logic.Core;
 using MyOwnACR.Logic.Interfaces;
 using MyOwnACR.Logic.Common;
 using InventoryManager = MyOwnACR.Logic.Core.InventoryManager;
+using MyOwnACR.GameData.Common;
+using MyOwnACR.GameData.Jobs.Monk;
 
 namespace MyOwnACR.Logic.Jobs.Monk
 {

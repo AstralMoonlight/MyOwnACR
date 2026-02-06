@@ -4,9 +4,9 @@
 //              Permite Double Weave (ej. RS + BV) simulando la activación de RS.
 
 using System.Collections.Generic;
-using MyOwnACR.GameData;
 using MyOwnACR.Logic.Core;
 using Dalamud.Game.ClientState.JobGauge.Enums;
+using MyOwnACR.GameData.Jobs.Bard;
 
 namespace MyOwnACR.Logic.Jobs.Bard.Skills
 {

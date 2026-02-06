@@ -4,7 +4,7 @@
 
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Objects.Types;
-using MyOwnACR.GameData;
+using MyOwnACR.GameData.Jobs.Bard;
 using MyOwnACR.Logic.Core;
 using MyOwnACR.Logic.Jobs.Bard;
 

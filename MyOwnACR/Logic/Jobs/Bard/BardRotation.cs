@@ -15,12 +15,12 @@ using Dalamud.Game.ClientState.JobGauge.Enums;
 using Dalamud.Game.ClientState.Keys;
 using Dalamud.Game.ClientState.Objects.Enums;
 using MyOwnACR.JobConfigs;
-using MyOwnACR.GameData;
 using MyOwnACR.Logic.Core;
 using MyOwnACR.Logic.Interfaces;
 using MyOwnACR.Logic.Common;
 using MyOwnACR.Logic.Jobs.Bard.Skills;
 using MyOwnACR.Models;
+using MyOwnACR.GameData.Jobs.Bard;
 
 namespace MyOwnACR.Logic.Jobs.Bard
 {

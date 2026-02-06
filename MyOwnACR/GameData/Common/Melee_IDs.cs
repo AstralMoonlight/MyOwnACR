@@ -2,7 +2,7 @@
 // Descripción: IDs de Acciones de Rol (Role Actions) compartidas por todos los DPS Melee.
 // Actualizado para Dawntrail (7.0).
 
-namespace MyOwnACR.GameData
+namespace MyOwnACR.GameData.Common
 {
     public static class Melee_IDs
     {

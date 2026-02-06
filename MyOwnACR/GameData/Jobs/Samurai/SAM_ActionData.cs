@@ -3,7 +3,7 @@
 
 using MyOwnACR.Logic.Common;
 
-namespace MyOwnACR.GameData
+namespace MyOwnACR.GameData.Jobs.Samurai
 {
     public static class SAM_ActionData
     {

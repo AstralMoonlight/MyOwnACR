@@ -1,4 +1,4 @@
-namespace MyOwnACR.GameData
+namespace MyOwnACR.GameData.Jobs.Samurai
 {
     public static class SAM_Levels
     {

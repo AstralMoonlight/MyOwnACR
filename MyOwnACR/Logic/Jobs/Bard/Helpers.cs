@@ -7,7 +7,7 @@ using Dalamud.Game.ClientState.Objects.SubKinds;
 using Dalamud.Game.ClientState.Keys;
 using Dalamud.Game.ClientState.Objects.Enums; // NECESARIO PARA StatusFlags
 using FFXIVClientStructs.FFXIV.Client.Game;
-using MyOwnACR.GameData;
+using MyOwnACR.GameData.Jobs.Bard;
 
 namespace MyOwnACR.Logic.Jobs.Bard
 {

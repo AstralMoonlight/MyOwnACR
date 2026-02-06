@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace MyOwnACR.GameData
+namespace MyOwnACR.GameData.Common
 {
     public static class JobPotionMapping
     {

@@ -3,7 +3,7 @@
 // DESCRIPCIÓN: Selección de ataques básicos respetando niveles y procs.
 
 using Dalamud.Game.ClientState.Objects.SubKinds;
-using MyOwnACR.GameData;
+using MyOwnACR.GameData.Jobs.Bard;
 
 namespace MyOwnACR.Logic.Jobs.Bard.Skills
 {

@@ -1,4 +1,4 @@
-namespace MyOwnACR.GameData
+namespace MyOwnACR.GameData.Common
 {
     /// <summary>
     /// Categoría principal de la poción (Stat principal).
