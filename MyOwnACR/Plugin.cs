@@ -7,7 +7,6 @@ using MyOwnACR.Network;
 using MyOwnACR.Services;
 using MyOwnACR.Logic.Core;
 using MyOwnACR.Logic.Common;
-using MyOwnACR.JobConfigs;
 using MyOwnACR.GameData.Jobs.Bard;
 using MyOwnACR.GameData.Jobs.Monk;
 using MyOwnACR.GameData.Jobs.Samurai;
@@ -32,45 +31,50 @@ namespace MyOwnACR
         [PluginService] public static IKeyState KeyState { get; private set; } = null!;
         [PluginService] internal static IPluginLog Log { get; private set; } = null!;
 
-        // --- COMPONENTES DEL PLUGIN ---
+        // --- MÓDULOS DEL PLUGIN ---
         public Configuration Config { get; set; }
         public GameService GameService { get; private set; }
-        private WebServer? _webServer; // Puede ser null si falla el init
+
+        // [NUEVO] Módulos separados
+        private WebServer? _webServer;
+        private InputManager _inputManager;
+        private DashboardHandler _dashboardHandler;
 
         // --- ESTADO ---
         public bool IsRunning { get; private set; } = false;
-        private bool _isHotkeyDown = false;
         private DateTime _lastErrorLogTime = DateTime.MinValue;
-        private DateTime _lastSentTime = DateTime.MinValue; // Timer para el dashboard
+        private DateTime _lastSentTime = DateTime.MinValue;
 
         public Plugin(IDalamudPluginInterface pluginInterface)
         {
             Instance = this;
             PluginInterface = pluginInterface;
 
-            // 1. Cargar Configuración
+            // 1. Configuración
             Config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
             Config.Initialize(PluginInterface);
 
-            // 2. Inicializar Servicios Auxiliares
+            // 2. Inicializar Servicios Internos
             GameService = new GameService(this);
+            _inputManager = new InputManager(this, KeyState);
+            _dashboardHandler = new DashboardHandler(this);
 
-            // 3. INICIALIZAR WEBSERVER (CRÍTICO: HACERLO ANTES DE CARGAR DATOS)
-            // Esto evita el NullReferenceException cuando OpenerManager intenta loguear.
+            // 3. Red (WebServer)
             try
             {
                 _webServer = new WebServer(this);
+                // Delegamos el mensaje al Handler
+                _webServer.OnMessage += _dashboardHandler.OnWebMessage;
             }
             catch (Exception ex)
             {
                 Log.Error(ex, "Fallo al iniciar el servidor web.");
             }
 
-            // 4. Cargar Datos del Juego (IDs, Openers, etc.)
-            // Ahora si OpenerManager hace SendLog, _webServer ya existe.
+            // 4. Datos del Juego
             InitializeGameData();
 
-            // 5. Registrar Comandos y Eventos
+            // 5. Hooks
             CommandManager.AddHandler("/acr", new CommandInfo((c, a) => ToggleRunning()) { HelpMessage = "Activar/Pausar Bot" });
             Framework.Update += OnGameUpdate;
         }
@@ -82,15 +86,11 @@ namespace MyOwnACR
                 var assemblyDir = PluginInterface.AssemblyLocation.DirectoryName!;
                 MyOwnACR.Logic.Common.ActionLibrary.Initialize(DataManager);
 
-
-                // Inicialización de IDs
                 MNK_ActionData.Initialize();
                 SAM_ActionData.Initialize();
                 BRD_ActionData.Initialize();
 
-                // Carga de Openers
                 OpenerManager.Instance.LoadOpeners(assemblyDir);
-
                 InputSender.Initialize();
             }
             catch (Exception ex) { Log.Error(ex, "Error inicializando datos del juego"); }
@@ -101,11 +101,15 @@ namespace MyOwnACR
             Framework.Update -= OnGameUpdate;
             CommandManager.RemoveHandler("/acr");
 
-            _webServer?.Dispose();
+            if (_webServer != null)
+            {
+                _webServer.OnMessage -= _dashboardHandler.OnWebMessage;
+                _webServer.Dispose();
+            }
             InputSender.Dispose();
         }
 
-        // --- MÉTODOS PÚBLICOS (API INTERNA) ---
+        // --- API PÚBLICA ---
         public void SetRunning(bool state) => IsRunning = state;
 
         public void ToggleRunning()
@@ -114,24 +118,19 @@ namespace MyOwnACR
             SendLog($"Bot {(IsRunning ? "ACTIVADO" : "PAUSADO")}");
         }
 
-        // PROTECCIÓN NULL (?): Si _webServer no está listo, no crashea.
         public void SendLog(string msg) => _webServer?.SendJson("log", msg);
         public void SendJson(string type, object data) => _webServer?.SendJson(type, data);
-
         public void FocusGame() => GameService.FocusGame();
 
-        // --- BUCLE PRINCIPAL (UNSAFE) ---
+        // --- GAME LOOP ---
         private unsafe void OnGameUpdate(IFramework framework)
         {
-            // 1. Chequeo de Hotkey (F8 por defecto)
-            var currentState = KeyState[Config.ToggleHotkey];
-            if (currentState && !_isHotkeyDown) { _isHotkeyDown = true; ToggleRunning(); }
-            else if (!currentState) { _isHotkeyDown = false; }
+            // 1. Delegar Input
+            _inputManager.Update();
 
-            // 2. Lógica del Bot
+            // 2. Lógica Principal
             if (IsRunning)
             {
-                // Verificamos seguridad (Ventana activa, etc.)
                 if (GameService.IsSafeToAct(out string blockReason))
                 {
                     var player = ObjectTable.LocalPlayer;
@@ -140,21 +139,17 @@ namespace MyOwnACR
                         var am = FFXIVClientStructs.FFXIV.Client.Game.ActionManager.Instance();
                         if (am != null)
                         {
-                            // A. Supervivencia
                             bool survUsed = Survival.Execute(am, player, Config.Survival, Config.Monk.SecondWind, Config.Monk.Bloodbath);
-
-                            // B. Rotación (Si no se usó supervivencia)
                             if (!survUsed)
                             {
                                 RotationManager.Instance.Execute(am, player, ObjectTable, Config, DataManager, ClientState);
-
                             }
                         }
                     }
                 }
                 else
                 {
-                    // Throttle para no spammear el log de errores
+                    // Throttle de logs de error
                     if ((DateTime.Now - _lastErrorLogTime).TotalSeconds > 1)
                     {
                         _lastErrorLogTime = DateTime.Now;
@@ -163,7 +158,7 @@ namespace MyOwnACR
                 }
             }
 
-            // 3. ENVÍO DE DATOS AL DASHBOARD (Cada 100ms)
+            // 3. Dashboard Update (100ms)
             if ((DateTime.Now - _lastSentTime).TotalMilliseconds >= 100)
             {
                 _lastSentTime = DateTime.Now;
@@ -171,7 +166,6 @@ namespace MyOwnACR
             }
         }
 
-        // --- DASHBOARD UPDATER ---
         private unsafe void UpdateDashboard()
         {
             var player = ObjectTable.LocalPlayer;
@@ -203,7 +197,6 @@ namespace MyOwnACR
             var inCombat = Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.InCombat];
             var statusText = IsRunning ? (inCombat ? "COMBATIENDO" : "ESPERANDO") : "PAUSADO";
 
-            // Enviamos el paquete de estado al WebServer
             SendJson("status", new
             {
                 is_running = IsRunning,

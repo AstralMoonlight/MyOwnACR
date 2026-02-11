@@ -1,8 +1,10 @@
 // Archivo: Logic/Core/ActionScheduler.cs
-// VERSIÓN: V3.3 - HIGH PING OPTIMIZED (LATAM MODE)
-// DESCRIPCIÓN: Estrategia "Fire & Forget".
-//              1. GCD: Se spamea directo a la cola del servidor (Queue) sin esperar animación local.
+// VERSIÓN: V3.5 - POTION SUPPORT ADDED
+// DESCRIPCIÓN: Estrategia "Fire & Forget" con soporte para Slidecasting + POCIONES.
+//              1. GCD: Se spamea directo a la cola del servidor (Queue).
 //              2. oGCD: Se sacrifica agresivamente si pone en riesgo el GCD principal.
+//              3. MOVEMENT: Gestión de paradas para castereos (RequestStop).
+//              4. ITEMS: Detección automática de IDs de ítems para usar UseSpecificPotion.
 
 using System;
 using System.Diagnostics;
@@ -12,11 +14,14 @@ using Dalamud.Plugin.Services;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using MyOwnACR.Logic.Common;
 
+// [NUEVO] Alias para usar tu gestor de inventario
+using MyInventoryManager = MyOwnACR.Logic.Core.InventoryManager;
+
 #pragma warning disable IDE1006
 
 namespace MyOwnACR.Logic.Core
 {
-    public enum WeavePriority { Normal, High, Forced }
+    public enum WeavePriority { Low, Normal, High, Forced }
     public enum WeaveSlot { Any, SlotA, SlotB }
 
     public struct OgcdPlan
@@ -63,6 +68,9 @@ namespace MyOwnACR.Logic.Core
         public CombatCycle CurrentCycle { get; private set; } = new CombatCycle();
         private OgcdPlan? injectedOgcd = null;
 
+        // [NUEVO] Flag de control de movimiento para Slidecasting
+        public bool StopRequested { get; private set; } = false;
+
         private readonly IChatGui _chat;
         private readonly IDataManager _dataManager;
 
@@ -73,6 +81,34 @@ namespace MyOwnACR.Logic.Core
             _spamTimer.Start();
         }
 
+        // =================================================================================
+        // MÉTODOS DE CONTROL DE CICLO Y MOVIMIENTO
+        // =================================================================================
+
+        /// <summary>
+        /// [IMPORTANTE] Llamar a esto al INICIO de cada frame/tick en tu bucle principal.
+        /// Resetea las banderas de solicitud de parada para no quedarse atascado.
+        /// </summary>
+        public void ResetCycle()
+        {
+            StopRequested = false;
+        }
+
+        /// <summary>
+        /// Solicita detener el movimiento inmediatamente (usado para Casts/Iaijutsu).
+        /// Tu lógica de movimiento debe leer la propiedad 'StopRequested'.
+        /// </summary>
+        public void RequestStop()
+        {
+            StopRequested = true;
+
+            // Opcional: Si tienes una clase estática de Input, podrías forzar el stop aquí.
+            // Ejemplo: MovementManager.StopMoving();
+        }
+
+        // =================================================================================
+        // UPDATE (EJECUCIÓN DE ACCIONES)
+        // =================================================================================
         public void Update(ActionManager* am, IPlayerCharacter player)
         {
             if (am == null || player == null) return;
@@ -184,15 +220,43 @@ namespace MyOwnACR.Logic.Core
             }
         }
 
+        // =================================================================================
+        // [MODIFICADO] USE ACTION: Soporte para Items/Pociones
+        // =================================================================================
         private bool UseAction(ActionManager* am, uint actionId, ulong targetId)
         {
+            // Detectamos si es una Poción (ID > 200,000 es un umbral seguro)
+            // Las Skills suelen ser < 40,000. Los Items son números muy grandes.
+            if (actionId > 200000)
+            {
+                // Usamos el gestor específico para ítems
+                return MyInventoryManager.UseSpecificPotion(am, actionId);
+            }
+
+            // Si es una Skill normal, usamos el InputSender
             return InputSender.CastAction(actionId);
         }
 
+        // =================================================================================
+        // [MODIFICADO] RESOLVE OGCD: Validación de Items
+        // =================================================================================
         private uint ResolveOgcd(ActionManager* am, OgcdPlan plan, float remainingGcd)
         {
-            // 1. Chequeo de Cooldown real
-            if (am->GetActionStatus(ActionType.Action, plan.ActionId) != 0) return 0;
+            // 1. Chequeo de Cooldown real (y Disponibilidad)
+            bool isReady;
+
+            if (plan.ActionId > 200000)
+            {
+                // Validación especial para Pociones (Items)
+                isReady = MyInventoryManager.IsPotionReady(am, plan.ActionId);
+            }
+            else
+            {
+                // Validación estándar para Skills
+                isReady = am->GetActionStatus(ActionType.Action, plan.ActionId) == 0;
+            }
+
+            if (!isReady) return 0;
 
             // 2. Forced Pass (Ignora Danger Zone)
             if (plan.Priority == WeavePriority.Forced) return plan.ActionId;

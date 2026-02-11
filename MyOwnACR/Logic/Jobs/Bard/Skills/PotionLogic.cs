@@ -1,52 +1,50 @@
-// Archivo: Logic/Jobs/Bard/Skills/PotionLogic.cs
-// VERSIÓN: V24.0 - MONK STYLE
-// DESCRIPCIÓN: Lógica de poción corregida usando métodos existentes.
-
 using FFXIVClientStructs.FFXIV.Client.Game;
-using MyOwnACR.Logic.Core; // Aquí está InventoryManager
-using MyOwnACR.GameData;
+using MyOwnACR.Logic.Core; // Aquí vive InventoryManager original
+using MyOwnACR.Models;
+// Alias para evitar conflicto de nombres con el InventoryManager del juego
+using MyOwnInventoryManager = MyOwnACR.Logic.Core.InventoryManager;
 
 namespace MyOwnACR.Logic.Jobs.Bard.Skills
 {
-    public static unsafe class PotionLogic
+    public unsafe static class PotionLogic
     {
-        // Recibimos primitivos para evitar errores de referencia de clases de Config
-        public static OgcdPlan? GetPlan(BardContext ctx, bool usePotion, uint potionId, bool saveCD, ActionManager* am)
+        public static OgcdPlan? GetPlan(BardContext ctx, ActionManager* am, uint potionId)
         {
-            // 1. Validaciones Básicas
-            if (saveCD) return null;
-            if (!usePotion) return null;
+            // 1. VALIDACIONES BÁSICAS
+            // Si no hay ID configurado o el usuario desactivó pociones, retornamos null.
             if (potionId == 0) return null;
 
-            // 2. Validación de Inventario (Estilo Monk)
-            // Usamos IsPotionReady que valida CD, Animación y Cantidad en inventario.
-            if (!MyOwnACR.Logic.Core.InventoryManager.IsPotionReady(am, potionId)) return null;
+            // Verificamos si la poción está lista (Cooldown y Stock) usando tu manager.
+            if (!MyOwnInventoryManager.IsPotionReady(am, potionId)) return null;
 
-            // -----------------------------------------------------------------
-            // ESTRATEGIA DE USO
-            // -----------------------------------------------------------------
+            // 2. LÓGICA DE ALINEACIÓN (RAGING STRIKES)
+            // Raging Strikes es el buff de daño de 2 min (120s CD).
+            // La poción (30s) debe cubrir los 20s de Raging Strikes.
+
             float rsCD = ctx.RagingStrikesCD;
 
-            // CASO A: Pre-Burst (Anticipación)
-            // Raging Strikes viene en camino (1.5s a 4.5s).
-            if (rsCD > 1.5f && rsCD < 4.5f)
-            {
-                return new OgcdPlan(potionId, WeavePriority.High, WeaveSlot.Any);
-            }
+            // CONDICIÓN A: BURST INMINENTE (Ventana de 2 min)
+            // Si Raging Strikes está listo (0) o vuelve en menos de 4.5 segundos.
+            // Esto asegura que usemos la poción 1 o 2 GCDs antes de pulsar RS.
+            bool burstComingSoon = rsCD < 4.5f;
 
-            // CASO B: Recuperación (Dentro del Burst)
-            if (ctx.IsRagingStrikesActive)
-            {
-                // FAILSAFE (Anti-Atasco):
-                // Si ya pasaron 3 segundos de burst (quedan < 17s), ABORTAMOS.
-                // Esto es crucial para que Barrage y Sidewinder no se queden esperando la poción eternamente.
-                if (ctx.RagingStrikesTimeLeft < 17.0f) return null;
+            // CONDICIÓN B: PROTECCIÓN POST-BURST
+            // Si RS tiene un CD > 110s, significa que ACABAMOS de usarlo.
+            // Es demasiado tarde para la poción. Abortar.
+            bool justUsedBurst = rsCD > 110.0f;
 
-                // Si estamos al inicio del burst (BV y RF activos), insistimos con la poción.
-                if (ctx.IsBattleVoiceActive && ctx.IsRadiantFinaleActive)
-                {
-                    return new OgcdPlan(potionId, WeavePriority.High, WeaveSlot.Any);
-                }
+            // CONDICIÓN C: OPENER (Inicio del combate)
+            // En el opener del Bardo, generalmente hacemos:
+            // Stormbite -> Caustic Bite -> (Poción) -> Raging Strikes.
+            // Así que si llevamos poco tiempo en combate (<15s) y RS está listo, ¡Fuego!
+            bool isOpenerCondition = ctx.CombatTime < 15.0f && rsCD < 1.0f;
+
+            // 3. DECISIÓN FINAL
+            // Si viene el burst (o estamos empezando) Y no lo hemos gastado ya...
+            if ((burstComingSoon || isOpenerCondition) && !justUsedBurst)
+            {
+                // Prioridad HIGH para forzar el bloqueo de weaving en BardRotation
+                return new OgcdPlan(potionId, WeavePriority.High);
             }
 
             return null;

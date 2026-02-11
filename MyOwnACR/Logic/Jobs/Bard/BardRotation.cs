@@ -1,7 +1,6 @@
 // Archivo: Logic/Jobs/Bard/BardRotation.cs
-// VERSIÓN: V31.1 - FIX CS0535 (IMPLEMENTACIÓN DE INTERFAZ)
-// DESCRIPCIÓN: Restaurados los métodos obligatorios de IJobLogic para compilar.
-//              Mantiene: Anti-Early Pull, Lógica Predictiva y Gestión de oGCDs completa.
+// VERSIÓN: V32.0 - POTION INTEGRATION (FULL)
+// DESCRIPCIÓN: Integra PotionLogic sin eliminar nada de la lógica previa.
 
 using System;
 using System.Linq;
@@ -41,7 +40,6 @@ namespace MyOwnACR.Logic.Jobs.Bard
         // =================================================================================
         // MÉTODOS DE INTERFAZ (OBLIGATORIOS PARA CORREGIR CS0535)
         // =================================================================================
-        // Aunque no los usemos activamente ahora, deben existir para que el código compile.
 
         public void QueueManualAction(uint actionId)
         {
@@ -57,7 +55,6 @@ namespace MyOwnACR.Logic.Jobs.Bard
 
         public void PrintDebugInfo(IChatGui chat)
         {
-            // Debug mínimo requerido por la interfaz
             if (chat != null)
             {
                 chat.Print($"[BRD] LastGCD: {LastProposedAction} | Song: {context.CurrentSong}");
@@ -114,8 +111,7 @@ namespace MyOwnACR.Logic.Jobs.Bard
             var target = player.TargetObject as IBattleChara;
             if (target == null || target.IsDead || !target.IsTargetable) return;
 
-            // BLOQUEO DE SEGURIDAD (ANTI-PULL):
-            // Si el helpers dice que no hay combate real (ni yo ni el mob peleamos), no hacemos nada.
+            // BLOQUEO DE SEGURIDAD (ANTI-PULL)
             if (!inCombat) return;
 
             // -----------------------------------------------------------------------------
@@ -166,47 +162,74 @@ namespace MyOwnACR.Logic.Jobs.Bard
             // -----------------------------------------------------------------------------
             List<OgcdPlan> plans = new List<OgcdPlan>();
 
+            // [NUEVO] Variable para controlar si vamos a usar poción
+            OgcdPlan? potionPlan = null;
+
             if (!op.SaveCD)
             {
-                // 1. BUFFS (Predictivos)
-                var buffPlans = BuffLogic.GetPlans(context, player.Level);
-                if (buffPlans.Count > 0) plans.AddRange(buffPlans);
+                // [INYECCIÓN NUEVA] 0. POCIÓN (Prioridad Suprema)
+                // ------------------------------------------------
+                if (op.UsePotion && op.SelectedPotionId != 0)
+                {
+                    // Consultamos si es el momento táctico correcto (Raging Strikes imminent)
+                    potionPlan = PotionLogic.GetPlan(context, am, op.SelectedPotionId);
+                }
 
-                // 2. BARRAGE (Tromba)
-                // Usar temprano en el burst para habilitar Resonant Arrow y Refulgent.
-                // BarrageLogic ya protege contra sobrescritura de procs.
-                var barragePlan = BarrageLogic.GetPlan(context, player);
-                if (barragePlan.HasValue) plans.Add(barragePlan.Value);
+                // Si NO vamos a usar poción, calculamos la rotación normal
+                if (potionPlan == null)
+                {
+                    // 1. BUFFS (Predictivos)
+                    var buffPlans = BuffLogic.GetPlans(context, player.Level);
+                    if (buffPlans.Count > 0) plans.AddRange(buffPlans);
 
-                // 3. EMPYREAL ARROW
-                var eaPlan = EmpyrealArrowLogic.GetPlan(context, player.Level);
-                if (eaPlan.HasValue) plans.Add(eaPlan.Value);
+                    // 2. BARRAGE (Tromba)
+                    var barragePlan = BarrageLogic.GetPlan(context, player);
+                    if (barragePlan.HasValue) plans.Add(barragePlan.Value);
 
-                // 4. SIDEWINDER
-                var swPlan = SidewinderLogic.GetPlan(context, player.Level);
-                if (swPlan.HasValue) plans.Add(swPlan.Value);
+                    // 3. EMPYREAL ARROW
+                    var eaPlan = EmpyrealArrowLogic.GetPlan(context, player.Level);
+                    if (eaPlan.HasValue) plans.Add(eaPlan.Value);
 
-                // 5. PITCH PERFECT
-                var ppPlan = PitchPerfectLogic.GetPlan(context);
-                if (ppPlan.HasValue) plans.Add(ppPlan.Value);
+                    // 4. SIDEWINDER
+                    var swPlan = SidewinderLogic.GetPlan(context, player.Level);
+                    if (swPlan.HasValue) plans.Add(swPlan.Value);
 
-                // 6. BLOODLETTER / RAIN OF DEATH
-                var blPlan = BloodletterLogic.GetPlan(context, player.Level, useAoE);
-                if (blPlan.HasValue) plans.Add(blPlan.Value);
+                    // 5. PITCH PERFECT
+                    var ppPlan = PitchPerfectLogic.GetPlan(context);
+                    if (ppPlan.HasValue) plans.Add(ppPlan.Value);
+
+                    // 6. BLOODLETTER / RAIN OF DEATH
+                    var blPlan = BloodletterLogic.GetPlan(context, player.Level, useAoE);
+                    if (blPlan.HasValue) plans.Add(blPlan.Value);
+                }
             }
 
             // -----------------------------------------------------------------------------
             // ENVÍO AL SCHEDULER
             // -----------------------------------------------------------------------------
 
-            // Ordenamos por prioridad (Forced > High > Normal > Low)
-            var sortedPlans = plans.OrderByDescending(p => p.Priority).ToList();
+            if (potionPlan.HasValue)
+            {
+                // CASO ESPECIAL: POCIÓN ACTIVA
+                // Si vamos a usar poción, bloqueamos el segundo slot de oGCD (enviamos null)
+                // Esto previene que el bot intente meter (Pocion + Bloodletter) y cause clipping.
+                scheduler.SetNextCycle(nextGcd, potionPlan.Value, null);
 
-            scheduler.SetNextCycle(
-                nextGcd,
-                sortedPlans.Count > 0 ? sortedPlans[0] : null,
-                sortedPlans.Count > 1 ? sortedPlans[1] : null
-            );
+                // Log opcional para confirmar que se envió la orden
+                Plugin.Instance.SendLog($"[ROTATION] Ejecutando Poción ID: {potionPlan.Value.ActionId}");
+            }
+            else
+            {
+                // CASO NORMAL: Double Weave permitido
+                // Ordenamos por prioridad (Forced > High > Normal > Low)
+                var sortedPlans = plans.OrderByDescending(p => p.Priority).ToList();
+
+                scheduler.SetNextCycle(
+                    nextGcd,
+                    sortedPlans.Count > 0 ? sortedPlans[0] : null,
+                    sortedPlans.Count > 1 ? sortedPlans[1] : null
+                );
+            }
         }
     }
 }

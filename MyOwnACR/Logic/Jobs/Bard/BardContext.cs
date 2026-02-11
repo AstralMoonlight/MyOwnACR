@@ -1,6 +1,6 @@
 // Archivo: Logic/Jobs/Bard/BardContext.cs
-// VERSIÓN: V22.0 - HELPER INTEGRATION
-// Descripción: Contexto que usa Helpers.CanUse para corregir los tiempos de CD.
+// VERSIÓN: V22.1 - COMBAT TIMER & HELPER INTEGRATION
+// Descripción: Contexto con cálculo de tiempo de combate y corrección de CDs.
 
 using System;
 using System.Linq;
@@ -50,9 +50,34 @@ namespace MyOwnACR.Logic.Jobs.Bard
         public bool IsBattleVoiceActive;
         public float RadiantEncoreTimeLeft;
 
+        // --- ESTADO DE COMBATE (NUEVO) ---
+        public float CombatTime { get; private set; }
+        private DateTime combatStart = DateTime.MinValue;
+
         public void Update(ActionManager* am, BRDGauge gauge, ActionScheduler scheduler, IPlayerCharacter player)
         {
             if (am == null || player == null) return;
+
+            // 0. CÁLCULO DE TIEMPO DE COMBATE
+            // Usamos el helper para saber si estamos en combate real (targeteando hostil)
+            bool inCombat = Helpers.IsRealCombat(player);
+
+            if (inCombat)
+            {
+                // Si acabamos de entrar en combate, guardamos la hora
+                if (combatStart == DateTime.MinValue)
+                {
+                    combatStart = DateTime.Now;
+                }
+                // Calculamos diferencia en segundos
+                CombatTime = (float)(DateTime.Now - combatStart).TotalSeconds;
+            }
+            else
+            {
+                // Si no estamos en combate, reseteamos
+                combatStart = DateTime.MinValue;
+                CombatTime = 0f;
+            }
 
             // 1. GAUGE
             CurrentSong = gauge.Song;
@@ -121,21 +146,17 @@ namespace MyOwnACR.Logic.Jobs.Bard
         }
 
         // =========================================================================
-        // EL FIX MAESTRO
+        // EL FIX MAESTRO (Sin cambios, funciona perfecto)
         // =========================================================================
         private float GetCooldownRemaining(ActionManager* am, uint actionId)
         {
             // 1. PREGUNTA DIRECTA AL JUEGO (Vía Helper)
-            // Si el juego dice que se puede usar (Status 0), el CD es 0.
-            // Esto evita cualquier error matemático cuando elapsed es 0.
             if (Helpers.CanUse(am, actionId)) return 0;
 
             // 2. CÁLCULO DE RESPALDO
             float elapsed = am->GetRecastTimeElapsed(ActionType.Action, actionId);
             float total = am->GetRecastTime(ActionType.Action, actionId);
 
-            // Si llegamos aquí, CanUse dio falso, así que hay CD o bloqueo.
-            // Si elapsed es 0 pero CanUse falló, asumimos que acaba de usarse (CD total).
             if (elapsed == 0) return total;
 
             return Math.Max(0, total - elapsed);

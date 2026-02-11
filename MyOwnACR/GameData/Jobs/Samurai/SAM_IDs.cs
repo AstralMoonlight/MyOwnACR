@@ -73,15 +73,22 @@ namespace MyOwnACR.GameData.Jobs.Samurai
         // =========================================================================
         // STATUSES (BUFFS) - En blanco (0) hasta confirmar
         // =========================================================================
-        public const ushort Status_MeikyoShisui = 0;
-        public const ushort Status_Fugetsu = 0;
-        public const ushort Status_Fuka = 0;
-        public const ushort Status_OgiNamikiriReady = 0;
-        public const ushort Status_TsubameReady = 4216;
+        public const ushort Status_MeikyoShisui = 1233;
+        public const ushort Status_Fugetsu = 1298;
+        public const ushort Status_Fuka = 1299;
+        public const ushort Status_OgiNamikiriReady = 2959;
+        public const ushort Status_ZanchinReady = 3855;
+        public const ushort Status_KaeshiSetsuReady = 4216;       // Normal (Lvl 76-99)
+        public const ushort Status_TendoKaeshiGokenReady = 4217;  // Tendo AoE (Lvl 100)
+        public const ushort Status_TendoKaeshiSetsuReady = 4218;  // Tendo ST (Lvl 100)
         public const ushort Status_TendoReady = 3856;
         public const ushort Status_ThirdEye = 0;
-        public const ushort Status_Tengentsu = 3853; // ID real
-        public const ushort Status_Meditate = 1231;  // ID real
-        
+        public const ushort Status_Tengentsu = 3853;
+        public const ushort Status_Meditate = 1231;
+        public const ushort Dot_Higanbana = 1228;
+
+
+        public const ushort Status_TsubameGaeshiReady_Legacy = 3852;
+
     }
 }
