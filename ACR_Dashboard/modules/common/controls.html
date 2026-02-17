@@ -1,0 +1,23 @@
+<div class="grid grid-cols-2 gap-3 mb-4">
+    <button class="btn btn-success btn-lg shadow text-white" onclick="ACR.toggleBot(true)">
+        <i class="fa-solid fa-play"></i> START
+    </button>
+    <button class="btn btn-error btn-lg shadow text-white" onclick="ACR.toggleBot(false)">
+        <i class="fa-solid fa-stop"></i> STOP
+    </button>
+</div>
+
+<div class="form-control">
+    <label class="label cursor-pointer bg-base-100 p-4 rounded-xl shadow-sm hover:bg-base-200 transition">
+        <div class="flex items-center gap-3">
+            <div class="p-2 bg-warning/10 rounded-lg text-warning">
+                <i class="fa-solid fa-lock text-xl"></i>
+            </div>
+            <div class="flex flex-col">
+                <span class="font-bold text-lg">Save Cooldowns</span>
+                <span class="text-xs opacity-60">Reservar recursos (No Burst)</span>
+            </div>
+        </div>
+        <input type="checkbox" class="toggle toggle-warning toggle-lg" id="op_savecd" onchange="ACR.updateOps()">
+    </label>
+</div>

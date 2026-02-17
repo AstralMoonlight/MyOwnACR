@@ -1,0 +1,76 @@
+/* css/core.css */
+
+body {
+    overscroll-behavior: none;
+    touch-action: manipulation;
+    user-select: none;
+    /* Transición instantánea para respuesta visual rápida */
+    transition: border-color 0s;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+}
+
+/* Ocultar Scrollbar pero permitir scroll */
+.no-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+.no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+/* Scrollbar personalizado para la consola y listas */
+.custom-scroll::-webkit-scrollbar {
+    width: 8px;
+}
+
+.custom-scroll::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+}
+
+.custom-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+}
+
+.custom-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.4);
+}
+
+/* Animación de botones "En Cola" */
+@keyframes pulse-queued {
+
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.8;
+        transform: scale(0.98);
+    }
+}
+
+.btn-queued {
+    background-color: #fbbd23 !important;
+    /* Warning color */
+    color: black !important;
+    border-color: #fbbd23 !important;
+    animation: pulse-queued 1s infinite;
+}
+
+/* Clases utilitarias para botones de acción */
+.btn-force {
+    transition: all 0.1s;
+    border-bottom: 4px solid rgba(0, 0, 0, 0.2);
+    background-color: oklch(var(--b1));
+    color: oklch(var(--bc));
+}
+
+.btn-force:active {
+    transform: translateY(2px);
+    border-bottom: 0px;
+}

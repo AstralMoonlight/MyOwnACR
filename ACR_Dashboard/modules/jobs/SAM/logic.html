@@ -1,0 +1,37 @@
+<div class="card bg-base-100 shadow-sm">
+    <div class="card-body p-4">
+        <h3 class="text-xs font-black opacity-50 uppercase mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-sliders"></i> Lógica: SAMURAI
+        </h3>
+
+        <div class="grid grid-cols-2 gap-3">
+            <div
+                class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3 md:col-span-2 border border-info/20">
+                <div class="flex flex-col">
+                    <span class="text-sm font-bold text-info">Auto Meikyo</span>
+                    <span class="text-[0.6rem] opacity-60">Usar en cooldown (Burst)</span>
+                </div>
+                <input type="checkbox" class="toggle toggle-sm toggle-info" id="sam_meikyo"
+                    onchange="ACR.updateJobConfig()" />
+            </div>
+
+            <div class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3">
+                <span class="text-xs font-bold">Auto Hagakure</span>
+                <input type="checkbox" class="toggle toggle-xs toggle-warning" id="sam_hagakure"
+                    onchange="ACR.updateJobConfig()" />
+            </div>
+
+            <div class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3">
+                <span class="text-xs font-bold">Auto Posicional</span>
+                <input type="checkbox" class="toggle toggle-xs toggle-success" id="sam_truenorth"
+                    onchange="ACR.updateJobConfig()" />
+            </div>
+
+            <div class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3 md:col-span-2">
+                <span class="text-xs font-bold">Auto Kenki Spend (Senei)</span>
+                <input type="checkbox" class="toggle toggle-xs toggle-error" id="sam_kenki"
+                    onchange="ACR.updateJobConfig()" />
+            </div>
+        </div>
+    </div>
+</div>

@@ -1,181 +1,140 @@
-using FFXIVClientStructs.FFXIV.Client.Game;
-using MyOwnACR.Logic.Common; // Donde vive ActionLibrary
-using MyOwnACR.Models;       // Donde viven los DTOs de OpenerProfile/Step
-using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Linq;
+using Dalamud.Game.ClientState.Objects.Types;
+using MyOwnACR.Logic.Openers;
+using MyOwnACR.Logic.Openers.Jobs;
 
 namespace MyOwnACR.Logic.Core
 {
-    /// <summary>
-    /// Gestor PASIVO de Secuencias de Apertura (Openers).
-    /// No ejecuta acciones ni maneja tiempos. Solo sirve el siguiente paso cuando se le solicita.
-    /// El avance (Advance) debe ser llamado explícitamente por el RotationManager cuando confirma la ejecución.
-    /// </summary>
     public class OpenerManager
     {
         public static OpenerManager Instance { get; } = new OpenerManager();
         private OpenerManager() { }
 
-        // Estado Público
-        public bool IsRunning { get; private set; } = false;
-        public int CurrentStepIndex { get; private set; } = 0;
-        public string CurrentOpenerName { get; private set; } = "Ninguno";
+        public bool IsRunning => _isRunning;
+        public int CurrentStepIndex => _stepIndex;
+        public List<string> AvailableOpeners { get; private set; } = new();
 
-        // Almacenamiento Interno
-        private List<OpenerProfile> _loadedOpeners = new();
-        private OpenerProfile? _activeProfile = null;
+        private Dictionary<string, OpenerProfile> _profiles = new();
+        private OpenerProfile? _currentProfile;
+        private int _stepIndex = 0;
+        private bool _isRunning = false;
+        private DateTime _startTime;
 
-        // [SOLUCIÓN CS1061] Propiedad que busca Plugin.cs para el Dashboard
-        public List<string> AvailableOpeners => _loadedOpeners.Select(o => o.Name).OrderBy(n => n).ToList();
-
-        /// <summary>
-        /// Carga todos los archivos .json de la carpeta "Openers".
-        /// </summary>
-        public void LoadOpeners(string pluginConfigDir)
+        public void LoadOpeners(string unusedPath = "")
         {
-            try
-            {
-                var openersDir = Path.Combine(pluginConfigDir, "Openers");
-                if (!Directory.Exists(openersDir)) Directory.CreateDirectory(openersDir);
-
-                _loadedOpeners.Clear();
-
-                foreach (var file in Directory.GetFiles(openersDir, "*.json"))
-                {
-                    try
-                    {
-                        var content = File.ReadAllText(file);
-                        var profile = JsonConvert.DeserializeObject<OpenerProfile>(content);
-
-                        if (profile != null && profile.Steps != null && profile.Steps.Count > 0)
-                        {
-                            ResolveActionIds(profile);
-                            _loadedOpeners.Add(profile);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Plugin.Log.Error($"Error leyendo opener {Path.GetFileName(file)}: {ex.Message}");
-                    }
-                }
-
-                Plugin.Log.Info($"[OpenerManager] Cargados {_loadedOpeners.Count} openers.");
-            }
-            catch (Exception ex) { Plugin.Log.Error(ex, "Error fatal cargando openers"); }
+            _profiles.Clear();
+            AvailableOpeners.Clear();
+            RegisterOpener(SAM_Openers.Standard_Lv100);
+            Plugin.Log.Info($"[OpenerManager] Cargados {_profiles.Count} openers.");
         }
 
-        private void ResolveActionIds(OpenerProfile profile)
+        private void RegisterOpener(OpenerProfile profile)
         {
-            foreach (var step in profile.Steps)
-            {
-                // Las pociones se manejan por lógica especial (ID = 0 o flag 'Potion')
-                if (step.Type == "Potion") continue;
-
-                // Si viene sin ID numérico pero con nombre (clave), buscamos el ID real
-                if (step.ActionId == 0 && !string.IsNullOrEmpty(step.KeyName))
-                {
-                    step.ActionId = ActionLibrary.GetIdByName(step.KeyName);
-
-                    if (step.ActionId == 0)
-                        Plugin.Log.Warning($"[Opener] No se encontró ID para la acción: {step.KeyName}");
-                }
-            }
+            if (profile == null) return;
+            _profiles[profile.Name] = profile;
+            AvailableOpeners.Add(profile.Name);
         }
 
         public void SelectOpener(string name)
         {
-            if (string.IsNullOrEmpty(name) || name == "Ninguno")
+            if (_profiles.ContainsKey(name))
             {
-                _activeProfile = null;
-                CurrentOpenerName = "Ninguno";
-                IsRunning = false;
-                return;
-            }
-
-            _activeProfile = _loadedOpeners.FirstOrDefault(o => o.Name == name);
-            if (_activeProfile != null)
-            {
-                CurrentOpenerName = _activeProfile.Name;
+                _currentProfile = _profiles[name];
+                Plugin.Instance.SendLog($"[Opener] Seleccionado: {name}");
             }
             else
             {
-                Plugin.Log.Error($"[OpenerManager] No se encontró el perfil: {name}");
-                CurrentOpenerName = "Ninguno";
+                _currentProfile = null;
+            }
+            Reset();
+        }
+
+        public void Reset()
+        {
+            if (_isRunning) Plugin.Instance.SendLog("[Opener] Reseteado/Detenido.");
+            _stepIndex = 0;
+            _isRunning = false;
+        }
+
+        // [MODIFICADO] Ahora acepta el tiempo restante de la cuenta atrás
+        public uint GetNextAction(IGameObject? target, float countdownRemaining = 0)
+        {
+            if (_currentProfile == null) return 0;
+
+            // Si terminamos
+            if (_stepIndex >= _currentProfile.Steps.Count)
+            {
+                if (_isRunning)
+                {
+                    Plugin.Instance.SendLog("[Opener] FINALIZADO EXITOSAMENTE.");
+                    _isRunning = false;
+                }
+                return 0;
             }
 
-            // Al seleccionar, reseteamos (no arrancamos automáticamente)
-            IsRunning = false;
-            CurrentStepIndex = 0;
-        }
-
-        public void Start()
-        {
-            if (_activeProfile == null) return;
-
-            IsRunning = true;
-            CurrentStepIndex = 0;
-            Plugin.Instance.SendLog($"[OPNR] INICIANDO SECUENCIA: {_activeProfile.Name}");
-        }
-
-        public void Stop()
-        {
-            if (IsRunning)
+            // Si empezamos ahora
+            if (!_isRunning)
             {
-                IsRunning = false;
-                Plugin.Instance.SendLog($"[OPNR] Secuencia Finalizada.");
-            }
-            // No reseteamos CurrentStepIndex aquí para permitir diagnósticos post-mortem si se desea
-        }
-
-        // --- MÉTODOS DE CONSULTA (SIN LÓGICA DE TIEMPO) ---
-
-        public OpenerStep? GetCurrentStep()
-        {
-            if (!IsRunning || _activeProfile == null) return null;
-
-            // Si nos pasamos del final, terminamos
-            if (CurrentStepIndex >= _activeProfile.Steps.Count)
-            {
-                Stop();
-                return null;
+                _isRunning = true;
+                _startTime = DateTime.Now;
+                Plugin.Instance.SendLog($"[Opener] INICIANDO SECUENCIA: {_currentProfile.Name}");
             }
 
-            return _activeProfile.Steps[CurrentStepIndex];
-        }
+            var currentStep = _currentProfile.Steps[_stepIndex];
 
-        public OpenerStep? PeekNextStep(int offset = 1)
-        {
-            if (!IsRunning || _activeProfile == null) return null;
-
-            int idx = CurrentStepIndex + offset;
-            if (idx >= _activeProfile.Steps.Count) return null;
-
-            return _activeProfile.Steps[idx];
-        }
-
-        // --- MÉTODO DE AVANCE (CONTROLADO EXTERNAMENTE) ---
-        // Este método debe ser llamado por RotationManager cuando detecta que la acción se ejecutó con éxito.
-        public void Advance()
-        {
-            if (!IsRunning || _activeProfile == null) return;
-
-            // Logueamos el paso completado
-            if (CurrentStepIndex < _activeProfile.Steps.Count)
+            // =================================================================
+            // LÓGICA DE ESPERA (PRE-PULL)
+            // =================================================================
+            // Si hay una cuenta atrás activa y el paso tiene un tiempo definido (ej: 14s)
+            if (countdownRemaining > 0 && currentStep.PrepullSeconds > 0)
             {
-                var step = _activeProfile.Steps[CurrentStepIndex];
-                // Plugin.Instance.SendLog($"[OPNR] OK: {step.Name ?? step.KeyName}"); // Opcional para no spammear
+                // Si faltan 15s y el paso es a los 14s...
+                // Esperamos hasta que el contador baje a 14.5s (damos 0.5s de margen)
+                if (countdownRemaining > (currentStep.PrepullSeconds + 0.5f))
+                {
+                    // Retornamos 0 (Esperar), pero mantenemos _isRunning en TRUE
+                    return 0;
+                }
+                // Si llegamos aquí, es hora de ejecutar
             }
 
-            CurrentStepIndex++;
-
-            // Verificamos si terminamos
-            if (CurrentStepIndex >= _activeProfile.Steps.Count)
+            // Si hay cuenta atrás pero el paso NO es prepull (es de combate), 
+            // esperamos a que el contador llegue casi a 0.
+            if (countdownRemaining > 0.5f && currentStep.PrepullSeconds <= 0)
             {
-                Plugin.Instance.SendLog("[OPNR] Opener COMPLETADO EXITOSAMENTE.");
-                Stop();
+                return 0;
+            }
+
+            // Lógica Poción
+            if (currentStep.Type == OpenerStepType.Potion)
+            {
+                var selectedPotionId = Plugin.Instance.Config.Operation.SelectedPotionId;
+                if (selectedPotionId == 0)
+                {
+                    Plugin.Instance.SendLog($"[Opener] Saltando Poción (No configurada).");
+                    AdvanceStep();
+                    return GetNextAction(target, countdownRemaining);
+                }
+                return selectedPotionId;
+            }
+
+            return currentStep.ActionId;
+        }
+
+        public void AdvanceStep()
+        {
+            if (_currentProfile != null && _stepIndex < _currentProfile.Steps.Count)
+            {
+                var justFinished = _currentProfile.Steps[_stepIndex].Name;
+                _stepIndex++;
+                Plugin.Instance.SendLog($"[Opener] COMPLETADO: {justFinished} -> Siguiente: {_stepIndex + 1}");
+
+                if (_stepIndex >= _currentProfile.Steps.Count)
+                {
+                    _isRunning = false;
+                    Plugin.Instance.SendLog("[Opener] Secuencia Terminada.");
+                }
             }
         }
     }

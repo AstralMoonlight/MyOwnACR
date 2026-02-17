@@ -1,0 +1,29 @@
+<div class="navbar bg-base-100/90 backdrop-blur shadow-sm sticky top-0 z-50 h-16">
+    <div class="flex-1">
+        <div class="flex items-center gap-2 px-2">
+            <i class="fa-solid fa-ghost text-2xl text-primary"></i>
+
+            <div class="flex flex-col leading-none">
+                <div class="flex items-baseline gap-2">
+                    <span class="font-black text-lg tracking-widest">MYOWN<span class="text-primary">ACR</span></span>
+                    <span id="header-job-badge"
+                        class="badge badge-outline badge-primary badge-sm font-mono opacity-0 transition-opacity duration-500">...</span>
+                </div>
+                <span class="text-[0.6rem] opacity-60 uppercase font-bold text-error"
+                    id="connection-status">Desconectado</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="flex-none gap-3">
+        <label class="swap swap-rotate btn btn-circle btn-ghost btn-sm">
+            <input type="checkbox" id="theme-toggle" onchange="Utils.toggleTheme()" />
+            <i class="swap-on fill-current fa-solid fa-sun text-warning text-lg"></i>
+            <i class="swap-off fill-current fa-solid fa-moon text-info text-lg"></i>
+        </label>
+
+        <button class="btn btn-square btn-ghost" onclick="Utils.openConfigModal()">
+            <i class="fa-solid fa-sliders text-xl"></i>
+        </button>
+    </div>
+</div>

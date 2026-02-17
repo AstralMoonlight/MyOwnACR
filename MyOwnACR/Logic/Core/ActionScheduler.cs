@@ -1,10 +1,6 @@
 // Archivo: Logic/Core/ActionScheduler.cs
-// VERSIÓN: V3.5 - POTION SUPPORT ADDED
-// DESCRIPCIÓN: Estrategia "Fire & Forget" con soporte para Slidecasting + POCIONES.
-//              1. GCD: Se spamea directo a la cola del servidor (Queue).
-//              2. oGCD: Se sacrifica agresivamente si pone en riesgo el GCD principal.
-//              3. MOVEMENT: Gestión de paradas para castereos (RequestStop).
-//              4. ITEMS: Detección automática de IDs de ítems para usar UseSpecificPotion.
+// VERSIÓN: V3.5 - POTION SUPPORT + OPENER ADVANCE
+// DESCRIPCIÓN: Estrategia "Fire & Forget". Mantiene WeavePriority/OgcdPlan originales.
 
 using System;
 using System.Diagnostics;
@@ -14,13 +10,13 @@ using Dalamud.Plugin.Services;
 using Dalamud.Game.ClientState.Objects.SubKinds;
 using MyOwnACR.Logic.Common;
 
-// [NUEVO] Alias para usar tu gestor de inventario
 using MyInventoryManager = MyOwnACR.Logic.Core.InventoryManager;
 
 #pragma warning disable IDE1006
 
 namespace MyOwnACR.Logic.Core
 {
+    // MANTENEMOS TUS DEFINICIONES ORIGINALES
     public enum WeavePriority { Low, Normal, High, Forced }
     public enum WeaveSlot { Any, SlotA, SlotB }
 
@@ -49,26 +45,14 @@ namespace MyOwnACR.Logic.Core
 
     public unsafe class ActionScheduler
     {
-        // --- CONSTANTES DE TIMING (Modo Latencia Alta) ---
-
-        // DANGER ZONE (Zona de Peligro): 0.85s
-        // Si falta menos de esto para que vuelva el GCD, NO lanzamos oGCDs.
-        // Ping 150ms + Anim 600ms = 750ms "reales". Dejamos 100ms de margen.
         private const float DANGER_ZONE = 0.85f;
-
-        // GCD QUEUE WINDOW: 0.6s
-        // Tiempo antes del GCD en el que empezamos a spamear la habilidad al servidor.
         private const float GCD_QUEUE_WINDOW = 0.6f;
-
-        // Intervalo de Spam para oGCDs (ms)
         private const long SPAM_MS_OGCD = 20;
 
         private readonly Stopwatch _spamTimer = new Stopwatch();
 
         public CombatCycle CurrentCycle { get; private set; } = new CombatCycle();
         private OgcdPlan? injectedOgcd = null;
-
-        // [NUEVO] Flag de control de movimiento para Slidecasting
         public bool StopRequested { get; private set; } = false;
 
         private readonly IChatGui _chat;
@@ -81,100 +65,56 @@ namespace MyOwnACR.Logic.Core
             _spamTimer.Start();
         }
 
-        // =================================================================================
-        // MÉTODOS DE CONTROL DE CICLO Y MOVIMIENTO
-        // =================================================================================
+        public void ResetCycle() { StopRequested = false; }
+        public void RequestStop() { StopRequested = true; }
 
-        /// <summary>
-        /// [IMPORTANTE] Llamar a esto al INICIO de cada frame/tick en tu bucle principal.
-        /// Resetea las banderas de solicitud de parada para no quedarse atascado.
-        /// </summary>
-        public void ResetCycle()
-        {
-            StopRequested = false;
-        }
-
-        /// <summary>
-        /// Solicita detener el movimiento inmediatamente (usado para Casts/Iaijutsu).
-        /// Tu lógica de movimiento debe leer la propiedad 'StopRequested'.
-        /// </summary>
-        public void RequestStop()
-        {
-            StopRequested = true;
-
-            // Opcional: Si tienes una clase estática de Input, podrías forzar el stop aquí.
-            // Ejemplo: MovementManager.StopMoving();
-        }
-
-        // =================================================================================
-        // UPDATE (EJECUCIÓN DE ACCIONES)
-        // =================================================================================
         public void Update(ActionManager* am, IPlayerCharacter player)
         {
             if (am == null || player == null) return;
             ulong targetId = player.TargetObject?.GameObjectId ?? player.GameObjectId;
 
-            // 1. CÁLCULO DE TIEMPOS
             float totalGcd = am->GetRecastTime(ActionType.Action, 11);
             float elapsedGcd = am->GetRecastTimeElapsed(ActionType.Action, 11);
             float remainingGcd = (totalGcd > 0) ? Math.Max(0, totalGcd - elapsedGcd) : 0;
             float animLock = am->AnimationLock;
 
-            // 2. INYECCIÓN (Stuns, Interrupciones - Prioridad Absoluta)
+            // 2. INYECCIÓN
             if (injectedOgcd.HasValue && injectedOgcd.Value.Priority == WeavePriority.Forced)
             {
-                // Permitimos inyectar incluso si hay bloqueo leve
                 if (animLock <= 0.3f)
                 {
                     if (UseAction(am, injectedOgcd.Value.ActionId, targetId)) { injectedOgcd = null; return; }
                 }
             }
 
-            // =================================================================================
-            // 3. LÓGICA DE GCD (MODO "SIN CONFIRMACIÓN")
-            // =================================================================================
-
-            // Si estamos en la ventana de cola (últimos 0.6s)...
+            // 3. GCD
             if (remainingGcd <= GCD_QUEUE_WINDOW)
             {
                 if (CurrentCycle.GcdActionId != 0)
                 {
-                    // AQUÍ ESTÁ EL CAMBIO CLAVE:
-                    // No verificamos 'animLock'. Asumimos que si estamos en los últimos 0.6s,
-                    // cualquier animación anterior ya debería estar terminando en el servidor.
-                    // Enviamos la orden para que entre a la cola (Action Queue) del juego.
-
-                    // Lógica de spam rápido en los últimos 0.2s para asegurar el frame
                     bool criticalZone = remainingGcd < 0.2f;
-
                     if (criticalZone || _spamTimer.ElapsedMilliseconds >= 20)
                     {
                         if (UseAction(am, CurrentCycle.GcdActionId, targetId))
                         {
                             _spamTimer.Restart();
+
+                            // [NUEVO] SI EL GCD SALIÓ EXITOSAMENTE, AVISAMOS AL OPENER
+                            if (OpenerManager.Instance.IsRunning) OpenerManager.Instance.AdvanceStep();
                         }
                     }
                 }
-
-                // RETORNO: Protegemos el GCD. No permitimos oGCDs en esta ventana.
                 return;
             }
 
-            // =================================================================================
-            // 4. LÓGICA DE WEAVING (oGCDs)
-            // =================================================================================
-
-            // Esperamos un mínimo de desbloqueo de animación (muy breve).
+            // 4. WEAVING
             if (animLock > 0.1f) return;
-
-            // Throttle para no saturar
             if (_spamTimer.ElapsedMilliseconds < SPAM_MS_OGCD) return;
 
             uint actionToUse = 0;
             bool consumedSlot1 = false;
             bool consumedInjected = false;
 
-            // Selección de Acción
             if (injectedOgcd.HasValue)
             {
                 actionToUse = ResolveOgcd(am, injectedOgcd.Value, remainingGcd);
@@ -185,11 +125,8 @@ namespace MyOwnACR.Logic.Core
                 actionToUse = ResolveOgcd(am, CurrentCycle.Ogcd1.Value, remainingGcd);
                 if (actionToUse != 0) consumedSlot1 = true;
             }
-            // Double Weave (Slot 2)
             else if (CurrentCycle.Ogcd1 == null && CurrentCycle.Ogcd2.HasValue)
             {
-                // Filtro extra de seguridad para el segundo weave con ping alto
-                // Si falta menos de 1.25s, es arriesgado meter un segundo oGCD.
                 if (remainingGcd > 1.25f)
                 {
                     actionToUse = ResolveOgcd(am, CurrentCycle.Ogcd2.Value, remainingGcd);
@@ -197,19 +134,19 @@ namespace MyOwnACR.Logic.Core
                 }
             }
 
-            // Ejecución
             if (actionToUse != 0)
             {
                 if (UseAction(am, actionToUse, targetId))
                 {
                     _spamTimer.Restart();
 
-                    // Limpieza de slots tras uso exitoso
+                    // [NUEVO] SI EL OGCD SALIÓ EXITOSAMENTE, AVISAMOS AL OPENER
+                    if (OpenerManager.Instance.IsRunning) OpenerManager.Instance.AdvanceStep();
+
                     if (consumedInjected) injectedOgcd = null;
                     if (consumedSlot1)
                     {
                         CurrentCycle.Ogcd1 = null;
-                        // Movemos Slot 2 a Slot 1
                         if (CurrentCycle.Ogcd2.HasValue)
                         {
                             CurrentCycle.Ogcd1 = CurrentCycle.Ogcd2;
@@ -220,64 +157,31 @@ namespace MyOwnACR.Logic.Core
             }
         }
 
-        // =================================================================================
-        // [MODIFICADO] USE ACTION: Soporte para Items/Pociones
-        // =================================================================================
         private bool UseAction(ActionManager* am, uint actionId, ulong targetId)
         {
-            // Detectamos si es una Poción (ID > 200,000 es un umbral seguro)
-            // Las Skills suelen ser < 40,000. Los Items son números muy grandes.
-            if (actionId > 200000)
-            {
-                // Usamos el gestor específico para ítems
-                return MyInventoryManager.UseSpecificPotion(am, actionId);
-            }
-
-            // Si es una Skill normal, usamos el InputSender
+            if (actionId > 200000) return MyInventoryManager.UseSpecificPotion(am, actionId);
             return InputSender.CastAction(actionId);
         }
 
-        // =================================================================================
-        // [MODIFICADO] RESOLVE OGCD: Validación de Items
-        // =================================================================================
         private uint ResolveOgcd(ActionManager* am, OgcdPlan plan, float remainingGcd)
         {
-            // 1. Chequeo de Cooldown real (y Disponibilidad)
             bool isReady;
-
-            if (plan.ActionId > 200000)
-            {
-                // Validación especial para Pociones (Items)
-                isReady = MyInventoryManager.IsPotionReady(am, plan.ActionId);
-            }
-            else
-            {
-                // Validación estándar para Skills
-                isReady = am->GetActionStatus(ActionType.Action, plan.ActionId) == 0;
-            }
+            if (plan.ActionId > 200000) isReady = MyInventoryManager.IsPotionReady(am, plan.ActionId);
+            else isReady = am->GetActionStatus(ActionType.Action, plan.ActionId) == 0;
 
             if (!isReady) return 0;
 
-            // 2. Forced Pass (Ignora Danger Zone)
             if (plan.Priority == WeavePriority.Forced) return plan.ActionId;
 
-            // 3. DANGER ZONE CHECK (El guardián del Drift)
-            // Si falta poco para el GCD, abortamos el oGCD.
-
-            float threshold = DANGER_ZONE; // 0.85s por defecto
-
-            // Si es High Priority, nos arriesgamos un poco más (0.70s)
+            float threshold = DANGER_ZONE;
             if (plan.Priority == WeavePriority.High) threshold = 0.70f;
 
             if (remainingGcd < threshold) return 0;
-
             return plan.ActionId;
         }
 
-        // --- MÉTODOS PÚBLICOS ---
         public void SetNextCycle(uint gcd, OgcdPlan? ogcd1 = null, OgcdPlan? ogcd2 = null)
         {
-            // Evitar reasignación si no hay cambios
             if (CurrentCycle.GcdActionId == gcd && IsPlanEqual(CurrentCycle.Ogcd1, ogcd1) && IsPlanEqual(CurrentCycle.Ogcd2, ogcd2)) return;
             CurrentCycle.Set(gcd, ogcd1, ogcd2);
         }

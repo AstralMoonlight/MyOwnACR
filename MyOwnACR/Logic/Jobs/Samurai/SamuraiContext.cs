@@ -5,7 +5,7 @@ using FFXIVClientStructs.FFXIV.Client.Game;
 using MyOwnACR.GameData.Jobs.Samurai;
 using MyOwnACR.Logic.Core;
 
-namespace MyOwnACR.Logic.Jobs.Samurai
+namespace MyOwnACR.Logic.Jobs.Samurai.Skills
 {
     /// <summary>
     /// Clase contenedora que captura el estado completo del Samurái en un frame específico.
@@ -72,6 +72,10 @@ namespace MyOwnACR.Logic.Jobs.Samurai
         public uint CastActionId { get; private set; }
         public float CastTimeRemaining { get; private set; }
 
+        // Punteros internos para GetRecast
+        public ActionManager* AM;
+        public IPlayerCharacter Player;
+
         // =========================================================================
         // MÉTODO UPDATE (ACTUALIZAR DATOS)
         // =========================================================================
@@ -82,6 +86,10 @@ namespace MyOwnACR.Logic.Jobs.Samurai
         public void Update(ActionManager* am, SAMGauge gauge, ActionScheduler scheduler, IPlayerCharacter player)
         {
             if (player == null || am == null) return;
+
+            // Guardamos referencias para GetRecast
+            AM = am;
+            Player = player;
 
             // --- 1. GAUGE ---
             Kenki = gauge.Kenki;
@@ -124,10 +132,11 @@ namespace MyOwnACR.Logic.Jobs.Samurai
             }
 
             // --- 4. COOLDOWNS ---
-            MeikyoCD = Helpers.GetCooldown(am, SAM_IDs.MeikyoShisui);
-            IkishotenCD = Helpers.GetCooldown(am, SAM_IDs.Ikishoten);
-            TsubameCD = Helpers.GetCooldown(am, SAM_IDs.TsubameGaeshi);
-            SeneiCD = Helpers.GetCooldown(am, SAM_IDs.HissatsuSenei);
+            // [FIX] Usamos GetRecast interno para consistencia, o Helpers si prefieres
+            MeikyoCD = am->GetRecastTime(ActionType.Action, SAM_IDs.MeikyoShisui);
+            IkishotenCD = am->GetRecastTime(ActionType.Action, SAM_IDs.Ikishoten);
+            TsubameCD = am->GetRecastTime(ActionType.Action, SAM_IDs.TsubameGaeshi);
+            SeneiCD = am->GetRecastTime(ActionType.Action, SAM_IDs.HissatsuSenei);
 
             // --- 5. COMBATE ---
             LastComboAction = am->Combo.Action;
@@ -136,18 +145,14 @@ namespace MyOwnACR.Logic.Jobs.Samurai
             GCD = am->GetRecastTime(ActionType.Action, SAM_IDs.Hakaze);
 
             // Tiempo de combate (estimado, útil para opener logic)
-            // Si quieres precisión absoluta, necesitarías un timer externo en Plugin.cs
-            CombatTime = 0; // Placeholder si no tienes un CombatTimer global
+            CombatTime = 0;
 
             // --- 6. CASTING STATE ---
             // Leemos del cliente si estamos casteando algo (Midare, Ogi, etc.)
-            // Importante para la lógica de predicción de botones (TsubameLogic)
             if (player.IsCasting)
             {
                 IsCasting = true;
                 CastActionId = player.CastActionId;
-
-                // Calculamos tiempo restante: Total - Actual
                 CastTimeRemaining = player.TotalCastTime - player.CurrentCastTime;
             }
             else
@@ -156,6 +161,33 @@ namespace MyOwnACR.Logic.Jobs.Samurai
                 CastActionId = 0;
                 CastTimeRemaining = 0;
             }
+        }
+
+        // =========================================================================
+        // [NUEVO] MÉTODOS AUXILIARES REQUERIDOS POR EL OPENER
+        // =========================================================================
+
+        public float GetRecast(uint actionId)
+        {
+            if (AM == null) return 999f;
+            return AM->GetRecastTime(ActionType.Action, actionId);
+        }
+
+        public bool IsGCD(uint actionId)
+        {
+            // Lista rápida de GCDs de Samurai
+            return actionId == SAM_IDs.Hakaze || actionId == SAM_IDs.Gyofu ||
+                   actionId == SAM_IDs.Jinpu || actionId == SAM_IDs.Shifu ||
+                   actionId == SAM_IDs.Gekko || actionId == SAM_IDs.Kasha ||
+                   actionId == SAM_IDs.Yukikaze ||
+                   actionId == SAM_IDs.Fuga || actionId == SAM_IDs.Fuko ||
+                   actionId == SAM_IDs.Mangetsu || actionId == SAM_IDs.Oka ||
+                   actionId == SAM_IDs.Enpi ||
+                   actionId == SAM_IDs.Iaijutsu ||
+                   actionId == SAM_IDs.MidareSetsugekka || actionId == SAM_IDs.TendoSetsugekka ||
+                   actionId == SAM_IDs.OgiNamikiri ||
+                   actionId == SAM_IDs.TsubameGaeshi || actionId == SAM_IDs.KaeshiNamikiri ||
+                   actionId == SAM_IDs.TendoKaeshiSetsugekka;
         }
     }
 }

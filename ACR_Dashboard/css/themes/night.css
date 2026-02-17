@@ -1,0 +1,24 @@
+/* css/themes/night.css */
+
+:root {
+    --border-stop: #ef4444;
+    /* Rojo Error */
+    --border-start: #58bfbf;
+    /* Cian/Teal */
+}
+
+/* Estado por defecto (Stop) */
+body {
+    border-color: var(--border-stop);
+}
+
+/* Estado Activo (Start) - Esta clase la pondrá app.js */
+body.is-running {
+    border-color: var(--border-start) !important;
+}
+
+/* Ajustes específicos para el tema oscuro de DaisyUI 'night' */
+[data-theme="night"] .card {
+    background-color: oklch(var(--b1));
+    /* Asegurar contraste */
+}

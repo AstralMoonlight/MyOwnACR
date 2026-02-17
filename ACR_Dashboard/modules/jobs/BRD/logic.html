@@ -1,0 +1,37 @@
+<div class="card bg-base-100 shadow-sm">
+    <div class="card-body p-4">
+        <h3 class="text-xs font-black opacity-50 uppercase mb-3 flex items-center gap-2">
+            <i class="fa-solid fa-sliders"></i> Lógica: BARDO
+        </h3>
+
+        <div class="grid grid-cols-2 gap-3">
+            <div
+                class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3 md:col-span-2 border border-primary/20">
+                <div class="flex flex-col">
+                    <span class="text-sm font-bold text-primary">Auto Songs</span>
+                    <span class="text-[0.6rem] opacity-60">Rotación de canciones automática</span>
+                </div>
+                <input type="checkbox" class="toggle toggle-sm toggle-primary" id="brd_autosong"
+                    onchange="ACR.updateJobConfig()" />
+            </div>
+
+            <div class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3">
+                <span class="text-xs font-bold">Uso Apex</span>
+                <input type="checkbox" class="toggle toggle-xs toggle-secondary" id="brd_useapex"
+                    onchange="ACR.updateJobConfig()" />
+            </div>
+
+            <div class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3">
+                <span class="text-xs font-bold">Iron Jaws</span>
+                <input type="checkbox" class="toggle toggle-xs toggle-warning" id="brd_ironjaws"
+                    onchange="ACR.updateJobConfig()" />
+            </div>
+
+            <div class="bg-base-200 rounded-lg p-2 flex items-center justify-between px-3 md:col-span-2">
+                <span class="text-xs font-bold">Respetar Buffs (2min)</span>
+                <input type="checkbox" class="toggle toggle-xs toggle-success" id="brd_alignbuffs"
+                    onchange="ACR.updateJobConfig()" />
+            </div>
+        </div>
+    </div>
+</div>

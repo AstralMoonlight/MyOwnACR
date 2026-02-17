@@ -153,7 +153,7 @@ namespace MyOwnACR
                     if ((DateTime.Now - _lastErrorLogTime).TotalSeconds > 1)
                     {
                         _lastErrorLogTime = DateTime.Now;
-                        if (!Config.Operation.UseMemoryInput) SendLog($"Bot detenido: {blockReason}");
+                        if (!Config.Operation.UseMemoryInput_v2) SendLog($"Bot detenido: {blockReason}");
                     }
                 }
             }

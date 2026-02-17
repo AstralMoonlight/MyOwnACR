@@ -22,17 +22,10 @@ namespace MyOwnACR.Network
 
         public void OnWebMessage(string cmd, string dataJson)
         {
-            // Forzamos ejecución en hilo principal para seguridad de memoria
             Plugin.Framework.RunOnTick(() =>
             {
-                try
-                {
-                    ProcessCommand(cmd, dataJson);
-                }
-                catch (Exception ex)
-                {
-                    Plugin.Log.Error(ex, $"Error procesando comando web '{cmd}'");
-                }
+                try { ProcessCommand(cmd, dataJson); }
+                catch (Exception ex) { Plugin.Log.Error(ex, $"Error procesando comando web '{cmd}'"); }
             });
         }
 
@@ -75,13 +68,10 @@ namespace MyOwnACR.Network
                     {
                         _plugin.Config.Operation = newOp;
                         _plugin.Config.Save();
-
-                        // Lógica de Opener Selection
                         if (!string.IsNullOrEmpty(newOp.SelectedOpener) && newOp.SelectedOpener != "Ninguno")
                             OpenerManager.Instance.SelectOpener(newOp.SelectedOpener);
                         else
                             OpenerManager.Instance.SelectOpener("Ninguno");
-
                         _plugin.FocusGame();
                     }
                     break;
@@ -97,8 +87,31 @@ namespace MyOwnACR.Network
                     break;
 
                 case "save_config":
-                    var newMonk = JsonConvert.DeserializeObject<JobConfig_MNK>(dataJson);
-                    if (newMonk != null) { _plugin.Config.Monk = newMonk; _plugin.Config.Save(); }
+                    var player = Plugin.ObjectTable.LocalPlayer;
+                    if (player != null)
+                    {
+                        uint jobId = player.ClassJob.RowId;
+
+                        // BARDO
+                        if (jobId == 23)
+                        {
+                            // PopulateObject actualiza solo las propiedades recibidas (toggles) sin borrar las teclas
+                            JsonConvert.PopulateObject(dataJson, _plugin.Config.Bard);
+                            _plugin.Config.Save();
+                        }
+                        // SAMURAI
+                        else if (jobId == 34)
+                        {
+                            JsonConvert.PopulateObject(dataJson, _plugin.Config.Samurai);
+                            _plugin.Config.Save();
+                        }
+                        // MONJE (Omitido por ahora como pediste, pero el bloque está listo si lo necesitas)
+                        else if (jobId == 20)
+                        {
+                            JsonConvert.PopulateObject(dataJson, _plugin.Config.Monk);
+                            _plugin.Config.Save();
+                        }
+                    }
                     break;
 
                 case "save_survival":
@@ -114,6 +127,7 @@ namespace MyOwnACR.Network
             {
                 Monk = _plugin.Config.Monk,
                 Bard = _plugin.Config.Bard,
+                Samurai = _plugin.Config.Samurai,
                 Survival = _plugin.Config.Survival,
                 Operation = _plugin.Config.Operation,
                 Global = new { ToggleKey = _plugin.Config.ToggleHotkey.ToString() }
@@ -125,19 +139,15 @@ namespace MyOwnACR.Network
         {
             var player = Plugin.ObjectTable.LocalPlayer;
             if (player == null) return;
-
             var jobId = player.ClassJob.RowId;
             var stat = GetMainStatForJob(jobId);
-
             if (stat == PotionStat.None)
             {
                 _plugin.SendJson("potion_list", new List<object>());
                 return;
             }
-
             var potentialPotions = Potion_IDs.GetListForStat(stat);
             var filteredList = new List<object>();
-
             foreach (var kvp in potentialPotions)
             {
                 if (MyInventoryManager.GetItemCount(kvp.Value) > 0)

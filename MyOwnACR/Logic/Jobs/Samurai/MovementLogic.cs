@@ -1,33 +1,34 @@
-// Archivo: Logic/Core/MovementLogic.cs
-using MyOwnACR.Logic.Jobs.Samurai; // O el contexto genérico si lo abstraes
+using Dalamud.Game.ClientState.Objects.Types;
+using MyOwnACR.Logic.Core; // Para ActionScheduler
 
-namespace MyOwnACR.Logic.Core
+namespace MyOwnACR.Logic.Jobs.Samurai.Skills
 {
     public static class MovementLogic
     {
-        // TIEMPO DE SLIDECAST: 0.5 segundos.
-        // Si falta menos de esto para terminar el cast, el servidor ya registró el daño.
-        // Puedes moverte libremente.
+        // Umbral de Slidecast (0.5s antes de terminar el cast ya te puedes mover)
         private const float SLIDECAST_WINDOW = 0.5f;
 
         /// <summary>
-        /// Determina si el jugador debe detenerse INMEDIATAMENTE para proteger un casteo.
+        /// Determina si debemos detener el movimiento para permitir un Cast (Iaijutsu).
         /// </summary>
-        public static bool ShouldStopMoving(SamuraiContext ctx)
+        public static bool ShouldStopMoving(SamuraiContext context)
         {
-            // 1. Si no estamos casteando, somos libres.
-            if (!ctx.IsCasting) return false;
+            // 1. Si no estamos casteando nada, no hay que parar
+            if (context.Player.CastActionId == 0) return false;
 
-            // 2. Si estamos casteando, revisamos cuánto falta.
-            // Si falta MUCHO (más de 0.5s), debemos detenernos.
-            if (ctx.CastTimeRemaining > SLIDECAST_WINDOW)
+            // 2. Verificar si es un cast de Samurái (Iaijutsus)
+            // (Opcional: podrías filtrar por IDs específicos si quisieras, 
+            // pero parar en cualquier cast es lo seguro para SAM).
+
+            // 3. Lógica de Slidecast
+            // Si falta poco para terminar el cast, NO paramos (dejamos que el usuario se mueva)
+            if (context.Player.CurrentCastTime + SLIDECAST_WINDOW >= context.Player.TotalCastTime)
             {
-                return true; // ¡ALTO! Freno de mano.
+                return false;
             }
 
-            // 3. Si falta POCO (0.4s, 0.3s...), es zona de Slidecast.
-            // Podemos movernos mientras termina la animación.
-            return false;
+            // 4. Si estamos a mitad del cast, pedimos STOP.
+            return true;
         }
     }
 }

@@ -1,4 +1,4 @@
-// Archivo: MyOwnACR/JobConfigs/MNK.cs
+// Archivo: MyOwnACR/JobConfigs/JobConfig_MNK.cs
 // Descripción: Configuración de rotación y teclas específicas para Monk (Dawntrail).
 // Define KeyBinds, preferencias de Weaving y tiempos de animación.
 

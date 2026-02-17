@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACR Modular Dashboard</title>
+
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@4.4.19/dist/full.min.css" rel="stylesheet" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <link rel="stylesheet" href="css/core.css">
+    <link rel="stylesheet" href="css/themes/night.css" id="theme-stylesheet">
+</head>
+
+<body class="bg-base-300 min-h-screen flex flex-col font-sans">
+
+    <div id="module-header"></div>
+
+    <main class="flex-grow p-4 grid grid-cols-1 lg:grid-cols-12 gap-4 max-w-7xl mx-auto w-full">
+
+        <div class="lg:col-span-4 space-y-4">
+            <div id="module-controls"></div>
+            <div id="module-config"></div>
+        </div>
+
+        <div class="lg:col-span-8 space-y-4">
+            <div id="module-job-injections"></div>
+            <div id="module-job-logic"></div>
+            <div id="module-console"></div>
+        </div>
+
+    </main>
+
+    <dialog id="config_modal" class="modal modal-bottom sm:modal-middle">
+        <div class="modal-box bg-base-100">
+            <h3 class="font-bold text-lg">Configuración Global</h3>
+            <div class="py-4">
+                <p>Ajustes avanzados próximamente...</p>
+            </div>
+            <div class="modal-action">
+                <form method="dialog"><button class="btn">Cerrar</button></form>
+            </div>
+        </div>
+        <form method="dialog" class="modal-backdrop"><button>close</button></form>
+    </dialog>
+
+    <script src="js/utils.js"></script>
+    <script src="js/loader.js"></script>
+    <script src="js/app.js"></script>
+</body>
+
+</html>

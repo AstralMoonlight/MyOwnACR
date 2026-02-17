@@ -4,8 +4,10 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.IO;                // [NUEVO] Para leer archivos
+using System.Collections.Generic; // [NUEVO] Para diccionarios
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq; // Necesario para parsear el mensaje entrante
+using Newtonsoft.Json.Linq;
 using Dalamud.Plugin;
 
 namespace MyOwnACR.Network
@@ -18,13 +20,11 @@ namespace MyOwnACR.Network
         private readonly SemaphoreSlim _socketLock = new(1, 1);
         private readonly Plugin _plugin;
 
-        // [CRÍTICO] El evento que Plugin.cs está buscando
         public event Action<string, string>? OnMessage;
 
         public WebServer(Plugin plugin)
         {
             _plugin = plugin;
-            // Iniciamos el servidor en un hilo separado
             Task.Run(() => StartServer(_cts.Token));
         }
 
@@ -40,18 +40,13 @@ namespace MyOwnACR.Network
 
                 if (_activeSocket == null || _activeSocket.State != WebSocketState.Open) return;
 
-                // Envolvemos los datos en el formato { type: "...", data: ... }
                 var wrapper = new { type, data = content };
                 var json = JsonConvert.SerializeObject(wrapper);
                 var bytes = Encoding.UTF8.GetBytes(json);
 
                 await _activeSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, _cts.Token);
             }
-            catch (Exception ex)
-            {
-                // Logueamos solo en debug para no spammear si se desconecta
-                // Plugin.Log.Debug($"[WS Send Error] {ex.Message}"); 
-            }
+            catch (Exception) { /* Ignorar errores de envío */ }
             finally
             {
                 if (lockTaken) try { _socketLock.Release(); } catch { }
@@ -62,14 +57,18 @@ namespace MyOwnACR.Network
         {
             try { _listener?.Close(); } catch { }
             _listener = new HttpListener();
-
-            // Puerto 5055 (Asegúrate que coincida con el JS)
             _listener.Prefixes.Add("http://127.0.0.1:5055/");
+
+            // =======================================================================
+            // [CONFIGURACIÓN] RUTA DE TU DASHBOARD (MODULAR)
+            // Cambia esto a la ruta donde crearás la carpeta en el Paso 2
+            // =======================================================================
+            string dashboardRoot = @"C:\Proyectos\MyOwnACR\ACR_Dashboard";
 
             try
             {
                 _listener.Start();
-                Plugin.Log.Info("Servidor Web iniciado en puerto 5055 (Native HttpListener)");
+                Plugin.Log.Info($"Servidor Web iniciado en puerto 5055. Sirviendo archivos desde: {dashboardRoot}");
             }
             catch (Exception ex)
             {
@@ -83,16 +82,16 @@ namespace MyOwnACR.Network
                 {
                     var context = await _listener.GetContextAsync();
 
+                    // -----------------------------------------------------------
+                    // CASO A: PETICIÓN WEBSOCKET (Comunicación Real-Time)
+                    // -----------------------------------------------------------
                     if (context.Request.IsWebSocketRequest)
                     {
-                        // Aceptamos la conexión WebSocket
                         _ = Task.Run(async () =>
                         {
                             try
                             {
                                 var wsContext = await context.AcceptWebSocketAsync(null);
-
-                                // Guardamos el socket activo de forma segura
                                 await _socketLock.WaitAsync(token);
                                 try
                                 {
@@ -101,19 +100,59 @@ namespace MyOwnACR.Network
                                 }
                                 finally { _socketLock.Release(); }
 
-                                Plugin.Log.Info("Cliente WebSocket conectado al Dashboard");
-
-                                // Entramos al bucle de recepción
+                                Plugin.Log.Info("Cliente WebSocket conectado");
                                 await ReceiveLoop(_activeSocket, token);
                             }
                             catch (Exception ex) { Plugin.Log.Error($"Error en cliente WS: {ex.Message}"); }
                         }, token);
                     }
+                    // -----------------------------------------------------------
+                    // CASO B: PETICIÓN HTTP (Servir Archivos HTML/CSS/JS)
+                    // -----------------------------------------------------------
                     else
                     {
-                        // Si no es WebSocket, devolvemos 400 o servimos archivos estáticos si quisieras
-                        context.Response.StatusCode = 400;
-                        context.Response.Close();
+                        _ = Task.Run(async () =>
+                        {
+                            var response = context.Response;
+                            try
+                            {
+                                string filename = context.Request.Url?.AbsolutePath ?? "/";
+
+                                // Si piden la raíz, servimos index.html
+                                if (filename == "/") filename = "/index.html";
+
+                                // Limpieza de ruta para evitar hackeos (Directory Traversal)
+                                filename = filename.TrimStart('/').Replace("..", "");
+
+                                string filePath = Path.Combine(dashboardRoot, filename);
+
+                                if (File.Exists(filePath))
+                                {
+                                    byte[] buffer = await File.ReadAllBytesAsync(filePath, token);
+
+                                    response.ContentLength64 = buffer.Length;
+                                    response.ContentType = GetContentType(Path.GetExtension(filePath));
+                                    response.StatusCode = 200;
+                                    // CORS headers para evitar problemas
+                                    response.AddHeader("Access-Control-Allow-Origin", "*");
+
+                                    await response.OutputStream.WriteAsync(buffer, 0, buffer.Length, token);
+                                }
+                                else
+                                {
+                                    response.StatusCode = 404; // No encontrado
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Plugin.Log.Error($"Error sirviendo archivo: {ex.Message}");
+                                response.StatusCode = 500;
+                            }
+                            finally
+                            {
+                                response.Close();
+                            }
+                        }, token);
                     }
                 }
                 catch { break; }
@@ -123,49 +162,50 @@ namespace MyOwnACR.Network
         private async Task ReceiveLoop(WebSocket s, CancellationToken token)
         {
             var buffer = new byte[4096];
-
             while (s.State == WebSocketState.Open && !token.IsCancellationRequested)
             {
                 try
                 {
-                    // Recibimos datos
                     var result = await s.ReceiveAsync(new ArraySegment<byte>(buffer), token);
-
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
                         await s.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
                         break;
                     }
 
-                    // Convertimos bytes a string JSON
                     var jsonMsg = Encoding.UTF8.GetString(buffer, 0, result.Count);
-
-                    // [NUEVO] Procesamos el JSON para disparar el evento OnMessage
                     try
                     {
                         var obj = JObject.Parse(jsonMsg);
                         var cmd = obj["cmd"]?.ToString();
-
-                        // 'data' puede ser un objeto complejo, lo pasamos como string para que Plugin.cs lo decida
                         var dataToken = obj["data"];
                         var dataStr = dataToken != null ? dataToken.ToString(Formatting.None) : "";
 
                         if (!string.IsNullOrEmpty(cmd))
                         {
-                            // Disparamos el evento hacia Plugin.cs
                             OnMessage?.Invoke(cmd, dataStr);
                         }
                     }
-                    catch (Exception jsonEx)
-                    {
-                        Plugin.Log.Error($"Error parseando mensaje WS: {jsonEx.Message}");
-                    }
+                    catch (Exception jsonEx) { Plugin.Log.Error($"Error parseando WS: {jsonEx.Message}"); }
                 }
-                catch
-                {
-                    break;
-                }
+                catch { break; }
             }
+        }
+
+        // Helper para tipos MIME correctos
+        private string GetContentType(string extension)
+        {
+            return extension.ToLower() switch
+            {
+                ".html" => "text/html",
+                ".css" => "text/css",
+                ".js" => "application/javascript",
+                ".json" => "application/json",
+                ".png" => "image/png",
+                ".jpg" => "image/jpeg",
+                ".svg" => "image/svg+xml",
+                _ => "application/octet-stream",
+            };
         }
 
         public void Dispose()

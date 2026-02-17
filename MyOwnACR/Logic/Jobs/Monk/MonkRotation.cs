@@ -131,7 +131,7 @@ namespace MyOwnACR.Logic.Jobs.Monk
             var operation = config.Operation;
             var now = DateTime.Now;
             var targetId = (player.TargetObject != null) ? player.TargetObject.GameObjectId : player.GameObjectId;
-            var useMem = operation.UseMemoryInput;
+            var useMem = operation.UseMemoryInput_v2;
             var inCombat = Plugin.Condition?[ConditionFlag.InCombat] ?? false;
 
             // -1. INYECCIÓN PRIORITARIA
@@ -169,7 +169,9 @@ namespace MyOwnACR.Logic.Jobs.Monk
                 {
                     Plugin.Instance.SendLog($"[DEBUG] Auto-Start Opener: {operation.SelectedOpener}");
                     OpenerManager.Instance.SelectOpener(operation.SelectedOpener);
-                    OpenerManager.Instance.Start();
+                    //OpenerManager.Instance.Start();
+                    OpenerManager.Instance.Reset();
+                   // OpenerManager.Instance.GetNextAction(target);
                 }
             }
             wasInCombat = inCombat;

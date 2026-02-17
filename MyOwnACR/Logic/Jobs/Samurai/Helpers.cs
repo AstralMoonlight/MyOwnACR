@@ -4,6 +4,8 @@ using Dalamud.Game.ClientState.Objects.Types;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using Dalamud.Game.ClientState.Objects.Enums;
+// Usamos el namespace donde vive AgentCountDownSettingDialog
+using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 
 namespace MyOwnACR.Logic.Jobs.Samurai
 {
@@ -25,9 +27,9 @@ namespace MyOwnACR.Logic.Jobs.Samurai
             if (player == null) return 0f;
             var sm = ((BattleChara*)player.Address)->GetStatusManager();
 
-            // Casteamos a (int) por si acaso tu versión de la librería lo pide
             int index = sm->GetStatusIndex(statusId);
 
+            // Validamos rango (0-59)
             if (index >= 0 && index < 60)
             {
                 return sm->GetRemainingTime(index);
@@ -43,15 +45,19 @@ namespace MyOwnACR.Logic.Jobs.Samurai
 
             if (index >= 0 && index < 60)
             {
+                // [FIX] Acceso manual a la memoria para leer los stacks (Param)
+                // El offset del array de status suele ser 0x8
                 var basePtr = (byte*)sm;
                 var statusArray = (Status*)(basePtr + 0x8);
+
+                // Leemos el campo Param, que contiene los stacks
                 return statusArray[index].Param;
             }
             return 0;
         }
 
         // =========================================================================
-        // [MODIFICADO] LECTURA DE DEBUFFS EN ENEMIGO
+        // LECTURA DE DEBUFFS EN ENEMIGO
         // =========================================================================
         public static float GetDebuffTimeLeft(IBattleChara target, uint statusId, uint sourceId)
         {
@@ -65,17 +71,15 @@ namespace MyOwnACR.Logic.Jobs.Samurai
             var basePtr = (byte*)sm;
             var statusArray = (Status*)(basePtr + 0x8);
 
-            // Iteramos los 60 slots
+            // Iteramos los 60 slots manualmente
             for (int i = 0; i < 60; i++)
             {
                 var status = statusArray[i];
 
-                // Verificamos el ID del status
                 if (status.StatusId == statusId)
                 {
-                    // AJUSTE CRÍTICO: 'SourceObject' es un struct GameObjectId.
-                    // Necesitamos castearlo a (uint) para compararlo con sourceId.
-                    // (La mayoría de structs GameObjectId permiten casting explícito).
+                    // [FIX] SourceId ahora se llama SourceObject y es un struct.
+                    // Lo casteamos a uint para comparar con el ID del jugador.
                     if ((uint)status.SourceObject == sourceId)
                     {
                         return status.RemainingTime;
@@ -104,6 +108,34 @@ namespace MyOwnACR.Logic.Jobs.Samurai
             if (player.TargetObject is IBattleChara targetEnemy)
                 return targetEnemy.StatusFlags.HasFlag(StatusFlags.InCombat);
             return false;
+        }
+
+        // =========================================================================
+        // [NUEVO] OBLIGATORIO PARA OPENER PRE-PULL
+        // Usamos AgentCountDownSettingDialog como descubriste
+        // =========================================================================
+        public static float GetCountdownRemaining()
+        {
+            try
+            {
+                // Usamos el struct que encontraste
+                var agent = AgentCountDownSettingDialog.Instance();
+
+                if (agent == null) return 0;
+
+                // Verificamos si está activo y devolvemos el tiempo
+                // FieldOffset 56 = Active, FieldOffset 40 = TimeRemaining
+                if (agent->Active && agent->TimeRemaining > 0)
+                {
+                    return agent->TimeRemaining;
+                }
+            }
+            catch
+            {
+                // Silenciamos errores por si la estructura cambia en el futuro
+            }
+
+            return 0f;
         }
     }
 }

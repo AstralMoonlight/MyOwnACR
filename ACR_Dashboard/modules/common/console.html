@@ -1,0 +1,25 @@
+<div class="card bg-base-100 shadow-sm mt-auto">
+    <div class="card-body p-4">
+        <div class="flex justify-between items-center mb-2">
+            <h3 class="text-xs font-black opacity-50 uppercase flex items-center gap-2">
+                <i class="fa-solid fa-terminal"></i> Consola
+            </h3>
+            <div class="flex gap-2">
+                <button class="btn btn-xs btn-ghost text-info" onclick="Utils.copyConsole()"
+                    title="Copiar al portapapeles">
+                    <i class="fa-solid fa-copy"></i>
+                </button>
+
+                <button class="btn btn-xs btn-ghost text-error"
+                    onclick="document.getElementById('module-console-output').innerHTML=''" title="Limpiar">
+                    <i class="fa-solid fa-trash"></i>
+                </button>
+            </div>
+        </div>
+
+        <div id="module-console-output"
+            class="bg-black/90 rounded-lg p-2 h-32 overflow-y-auto font-mono text-[0.65rem] text-success leading-tight shadow-inner select-text cursor-text custom-scroll">
+            <div class="opacity-30 italic text-center mt-8">Esperando conexión...</div>
+        </div>
+    </div>
+</div>

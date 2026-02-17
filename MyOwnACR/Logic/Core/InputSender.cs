@@ -93,7 +93,7 @@ namespace MyOwnACR.Logic.Common // Nota: Asegúrate que el namespace sea correct
             if (actionId == 0) return false;
 
             // 1. Verificar si usamos Memoria Directa (Opción Dashboard)
-            if (Plugin.Instance.Config.Operation.UseMemoryInput)
+            if (Plugin.Instance.Config.Operation.UseMemoryInput_v2)
             {
                 var am = ActionManager.Instance();
                 var player = Plugin.ObjectTable.LocalPlayer;

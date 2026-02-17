@@ -2,6 +2,7 @@
 using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Plugin.Services;
 
 namespace MyOwnACR.Services
@@ -9,9 +10,10 @@ namespace MyOwnACR.Services
     public class GameService
     {
         private readonly Plugin _plugin;
+        private readonly IntPtr _gameWindowHandle;
 
         // =========================================================================
-        // P/INVOKE (Windows API) - Ahora viven aquí, no ensucian el Plugin principal
+        // P/INVOKE (Windows API)
         // =========================================================================
 #pragma warning disable SYSLIB1054 
         [DllImport("user32.dll")]
@@ -24,21 +26,26 @@ namespace MyOwnACR.Services
         public GameService(Plugin plugin)
         {
             _plugin = plugin;
+
+            // Cacheamos el handle de la ventana al iniciar para ahorrar CPU
+            try
+            {
+                using var process = Process.GetCurrentProcess();
+                _gameWindowHandle = process.MainWindowHandle;
+            }
+            catch { _gameWindowHandle = IntPtr.Zero; }
         }
 
         /// <summary>
-        /// Trae la ventana del juego al frente. Útil cuando se envían comandos desde la Web.
+        /// Trae la ventana del juego al frente.
         /// </summary>
         public void FocusGame()
         {
+            if (_gameWindowHandle == IntPtr.Zero) return;
+
             try
             {
-                var process = Process.GetCurrentProcess();
-                var hWnd = process.MainWindowHandle;
-                if (hWnd != IntPtr.Zero)
-                {
-                    SetForegroundWindow(hWnd);
-                }
+                SetForegroundWindow(_gameWindowHandle);
             }
             catch (Exception ex)
             {
@@ -48,23 +55,33 @@ namespace MyOwnACR.Services
 
         /// <summary>
         /// Verifica si es seguro ejecutar acciones (Bot).
-        /// Revisa si la ventana está activa o si se permite input en segundo plano.
         /// </summary>
         public bool IsSafeToAct(out string failReason)
         {
             failReason = "";
 
-            // 1. Si usamos memoria, siempre es seguro (no requiere foco)
-            if (_plugin.Config.Operation.UseMemoryInput) return true;
+            // 1. Checks de estado del Juego (Crucial para evitar crashes o bugs)
+            // No actuar en pantallas de carga o cinemáticas
+            if (Plugin.Condition[ConditionFlag.BetweenAreas] ||
+                Plugin.Condition[ConditionFlag.OccupiedInCutSceneEvent])
+            {
+                failReason = "Juego ocupado (Carga/Cinemática)";
+                return false;
+            }
 
-            // 2. Verificar Foco de Ventana
-            var gameHandle = Process.GetCurrentProcess().MainWindowHandle;
+            // 2. Lógica de Foco de Ventana
+            // Si usamos memoria, permitimos ejecutar en segundo plano (Alt-Tab)
+            if (_plugin.Config.Operation.UseMemoryInput_v2)
+            {
+                return true;
+            }
+
+            // Si NO usamos memoria (teclas legacy), verificamos el foco de Windows
             var activeHandle = GetForegroundWindow();
 
-            // Si hay una ventana activa y NO es el juego
-            if (activeHandle != IntPtr.Zero && gameHandle != activeHandle)
+            if (_gameWindowHandle != IntPtr.Zero && activeHandle != _gameWindowHandle)
             {
-                failReason = $"Ventana Inactiva (Juego: {gameHandle}, Foco: {activeHandle})";
+                failReason = $"Ventana Inactiva (Juego: {_gameWindowHandle}, Foco: {activeHandle})";
                 return false;
             }
 

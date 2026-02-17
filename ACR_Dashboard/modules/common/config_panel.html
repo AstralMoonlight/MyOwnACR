@@ -1,0 +1,45 @@
+<div class="card bg-base-100 shadow-sm border border-primary/20">
+    <div class="card-body p-4 space-y-4">
+
+        <div>
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="text-xs font-black opacity-50 uppercase flex items-center gap-2">
+                    <i class="fa-solid fa-rocket text-primary"></i> Opener
+                </h3>
+
+                <div class="flex items-center gap-2 bg-base-200 rounded px-2 py-1">
+                    <span class="text-[0.6rem] font-bold uppercase opacity-70">Auto</span>
+                    <input type="checkbox" class="toggle toggle-primary toggle-xs" id="op_useopener"
+                        onchange="ACR.updateOps()" />
+                </div>
+            </div>
+
+            <select id="opener_select" class="select select-sm select-bordered w-full font-mono text-xs"
+                onchange="ACR.updateOps()">
+                <option value="Ninguno">Cargando...</option>
+            </select>
+        </div>
+
+        <div class="divider my-0 opacity-50"></div>
+
+        <div>
+            <div class="flex justify-between items-center mb-2">
+                <h3 class="text-xs font-black opacity-50 uppercase flex items-center gap-2">
+                    <i class="fa-solid fa-flask text-secondary"></i> Pociones
+                </h3>
+
+                <div class="flex items-center gap-2 bg-base-200 rounded px-2 py-1">
+                    <span class="text-[0.6rem] font-bold uppercase opacity-70">Usar</span>
+                    <input type="checkbox" class="toggle toggle-secondary toggle-xs" id="op_usepotion"
+                        onchange="ACR.updateOps()" />
+                </div>
+            </div>
+
+            <select id="potion_select" class="select select-sm select-bordered w-full font-mono text-xs"
+                onchange="ACR.updateOps()">
+                <option value="0">Ninguna</option>
+            </select>
+        </div>
+
+    </div>
+</div>

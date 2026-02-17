@@ -1,6 +1,6 @@
 // Archivo: MyOwnACR/Configuration.cs
 // Descripción: Clase principal de configuración.
-// VERSION: Multi-Job Ready (MNK + BRD).
+// VERSION: Multi-Job Ready (MNK + BRD + SAM).
 
 using Dalamud.Configuration;
 using Dalamud.Plugin;
@@ -10,9 +10,6 @@ using System;
 
 namespace MyOwnACR
 {
-    /// <summary>
-    /// Configuración para lógica de auto-supervivencia (pociones, skills de cura).
-    /// </summary>
     [Serializable]
     public class SurvivalConfig
     {
@@ -21,25 +18,15 @@ namespace MyOwnACR
         public int MinHp_Bloodbath { get; set; } = 60;
     }
 
-    /// <summary>
-    /// Ajustes operativos en tiempo real (Logic Toggles).
-    /// NOTA: Actualmente contiene muchos toggles específicos de Monk.
-    /// En el futuro, podríamos mover estos a JobConfig_MNK para limpiar.
-    /// </summary>
     [Serializable]
     public class OperationalSettings
     {
-        // --- GENERAL ---
-        // false = Simulación de Teclas (Legacy/Seguro)
-        // true = Inyección Directa a Memoria (Rápido/No interfiere con chat)
-        public bool UseMemoryInput { get; set; } = false;
-
+        public bool UseMemoryInput_v2 { get; set; } = true;
         public bool AoE_Enabled { get; set; } = true;
         public bool TrueNorth_Auto { get; set; } = false;
         public bool SaveCD { get; set; } = false;
 
-        // --- TOGGLES DE HABILIDADES (Monk Specific - Legacy Support) ---
-        // Se mantienen aquí por compatibilidad con el Dashboard actual del Monk
+        // Legacy Monk Toggles (Se mantienen por compatibilidad)
         public bool SixSidedStar_Use { get; set; } = false;
         public bool UsePB { get; set; } = true;
         public bool UseRoF { get; set; } = true;
@@ -47,39 +34,32 @@ namespace MyOwnACR
         public bool UseBrotherhood { get; set; } = true;
         public bool UseForbiddenChakra { get; set; } = true;
 
-        // --- CONFIGURACIÓN DE POCIONES ---
-        public bool UsePotion { get; set; } = false; // Toggle Master
-        public uint SelectedPotionId { get; set; } = 0; // ID de la poción elegida
+        public bool UsePotion { get; set; } = false;
+        public uint SelectedPotionId { get; set; } = 0;
 
-        // --- CONFIGURACIÓN DE OPENER ---
         public bool UseOpener { get; set; } = false;
         public string SelectedOpener { get; set; } = "Ninguno";
     }
 
-    /// <summary>
-    /// Clase raíz de configuración del Plugin.
-    /// </summary>
     [Serializable]
     public class Configuration : IPluginConfiguration
     {
         public int Version { get; set; } = 1;
-
-        // Configuración de tecla global para Pausar/Reanudar (Default F8)
         public VirtualKey ToggleHotkey = VirtualKey.F8;
 
         // --- CONFIGURACIONES POR JOB ---
         public JobConfig_MNK Monk = new JobConfig_MNK();
         public JobConfig_BRD Bard = new JobConfig_BRD();
 
-        // --- CONFIGURACIONES GENERALES ---
+        // [NUEVO] Agregamos Samurai para corregir CS1061
+        public JobConfig_SAM Samurai = new JobConfig_SAM();
+
         public SurvivalConfig Survival = new SurvivalConfig();
         public OperationalSettings Operation = new OperationalSettings();
 
-        // Referencia a la interfaz del plugin (no se serializa)
         [NonSerialized] private IDalamudPluginInterface? pluginInterface;
 
         public void Initialize(IDalamudPluginInterface pluginInterface) => this.pluginInterface = pluginInterface;
-
         public void Save() => this.pluginInterface!.SavePluginConfig(this);
     }
 }
