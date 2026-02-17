@@ -134,7 +134,7 @@ namespace MyOwnACR.Logic.Jobs.Bard
             if (nextGcd == 0)
             {
                 // A. Blast Arrow / Apex Arrow (Prioridad 1: Proc corto 10s o Barra llena)
-                nextGcd = ApexLogic.GetAction(context, player.Level, hasBlastProc);
+                nextGcd = ApexLogic.GetAction(context, config.Bard, player.Level, hasBlastProc);
 
                 // B. Resonant Arrow (Prioridad 2: Proc de Barrage - Nvl 96)
                 if (nextGcd == 0)

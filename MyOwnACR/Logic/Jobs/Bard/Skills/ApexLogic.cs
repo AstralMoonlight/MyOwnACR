@@ -7,12 +7,13 @@
 using Dalamud.Game.ClientState.JobGauge.Enums;
 using MyOwnACR.GameData.Jobs.Bard;
 using MyOwnACR.Logic.Core;
+using MyOwnACR.JobConfigs;
 
 namespace MyOwnACR.Logic.Jobs.Bard.Skills
 {
     public static class ApexLogic
     {
-        public static uint GetAction(BardContext ctx, int level, bool hasBlastProc)
+        public static uint GetAction(BardContext ctx, JobConfig_BRD config, int level, bool hasBlastProc)
         {
             // -----------------------------------------------------------------
             // 1. BLAST ARROW (Prioridad Absoluta)
@@ -34,6 +35,9 @@ namespace MyOwnACR.Logic.Jobs.Bard.Skills
             // -----------------------------------------------------------------
             // 2. APEX ARROW (Gestión de Soul Voice)
             // -----------------------------------------------------------------
+            // [MODIFICADO] Respetar toggle del Dashboard
+            if (!config.UseApexArrow) return 0;
+
             if (level >= BRD_Levels.ApexArrow && ctx.SoulVoice >= 80)
             {
                 // A. VÁLVULA DE SEGURIDAD (Overcap Inminente)

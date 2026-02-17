@@ -96,5 +96,9 @@ namespace MyOwnACR.JobConfigs
         public int SongCutoff_Paeon = 9;
         public bool AutoSong = true;
         public bool AutoDotMaintenance = true;
+        
+        // [NUEVO] Propiedades para Dashboard
+        public bool UseApexArrow { get; set; } = true; 
+        public bool AlignBuffs { get; set; } = true; 
     }
 }

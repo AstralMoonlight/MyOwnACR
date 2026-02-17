@@ -88,6 +88,7 @@ const ACR = {
             Utils.setCheck("op_savecd", cfg.Operation.SaveCD);
             Utils.setCheck("op_useopener", cfg.Operation.UseOpener);
             Utils.setCheck("op_usepotion", cfg.Operation.UsePotion);
+            Utils.setCheck("op_aoe", cfg.Operation.AoE_Enabled); // [NUEVO] Toggle AoE
 
             const opSel = document.getElementById("opener_select");
             if (opSel && opSel.value === "Ninguno")
@@ -112,7 +113,7 @@ const ACR = {
         if (jobId === 23 && cfg.Bard) {
             Utils.setCheck("brd_autosong", cfg.Bard.AutoSong);
             Utils.setCheck("brd_useapex", cfg.Bard.UseApexArrow);
-            Utils.setCheck("brd_ironjaws", cfg.Bard.AutoIronJaws);
+            Utils.setCheck("brd_ironjaws", cfg.Bard.AutoDotMaintenance); // [CORREGIDO] Clave correcta
             Utils.setCheck("brd_alignbuffs", cfg.Bard.AlignBuffs);
         }
 
@@ -177,6 +178,7 @@ const ACR = {
     updateOps: function () {
         const data = {
             SaveCD: Utils.getCheck("op_savecd"),
+            AoE_Enabled: Utils.getCheck("op_aoe"), // [NUEVO] Enviar estado AoE
             UseOpener: Utils.getCheck("op_useopener"),
             SelectedOpener:
                 document.getElementById("opener_select")?.value || "Ninguno",
@@ -205,7 +207,7 @@ const ACR = {
             jobData = {
                 AutoSong: Utils.getCheck("brd_autosong"),
                 UseApexArrow: Utils.getCheck("brd_useapex"),
-                AutoIronJaws: Utils.getCheck("brd_ironjaws"),
+                AutoDotMaintenance: Utils.getCheck("brd_ironjaws"), // [CORREGIDO] Clave correcta
                 AlignBuffs: Utils.getCheck("brd_alignbuffs"),
             };
             // Actualizar memoria local para que no se pierda al cambiar de pestaña
